@@ -2,7 +2,7 @@
 // hand-written SHA-256 that is subtly wrong would still look like a stable digest — the only
 // honest check is the published vectors, including the 56-byte case where the padding branch
 // changes.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from '@jest/globals';
 
 import { digest, stableStringify } from '../../src/testing/digest.ts';
 import { sha256Hex, utf8Bytes } from '../../src/testing/sha256.ts';
