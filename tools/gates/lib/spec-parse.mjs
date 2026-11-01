@@ -135,32 +135,42 @@ export const HOME_FORMS = ['module', 'route', 'screen'];
 /**
  * The sixteen standing lights, in the order `ready` prints them.
  *
- * `severity` is `'hard'` where the port plan states it and `null` where it does
- * not: an undeclared severity is written UNVERIFIED rather than guessed. The
- * light module that lands each id declares its severity in the same commit and
- * fills the row here (`severityOf` below says how an aggregator must treat a
- * null until then — fail closed, and say that it was undeclared).
+ * `severity` is declared for every id, and each value was READ OUT OF the light
+ * module that owns it (`export const severity` in
+ * `tools/gates/lights/<id without L->.mjs`), never chosen here: two of the
+ * sixteen are `soft` — `L-homes`, because a hard light on shared files would
+ * block ordinary work until enough specs exist to name their homes, and
+ * `L-browser`, because no browser is installed (TD-0001) — and the other
+ * fourteen are `hard`. The probe
+ * `probes/lights.mjs` → "STANDING_LIGHTS agrees with each module's own severity"
+ * compares the two sides mechanically, so the pair cannot drift: nine of these
+ * rows stood at `null` while every module declared one, and the pack read all
+ * nine as `hard` and printed a line naming them.
+ *
+ * A row may still be `null` — a light whose module is not written yet — and
+ * `severityOf` below says how an aggregator must treat one: fail closed, and say
+ * out loud that it was undeclared.
  *
  * `fast` is membership in `lights --fast`, the set the pre-commit hook runs:
  * everything Editor-free in Resonance's sense, i.e. no browser, no worktree, no
  * network, no double run.
  */
 export const STANDING_LIGHTS = [
-  { id: 'L-tsc', severity: null, fast: true, title: 'every project typechecks; pending-implementation is a hook tolerance only' },
+  { id: 'L-tsc', severity: 'hard', fast: true, title: 'every project typechecks; pending-implementation is a hook tolerance only' },
   { id: 'L-core-purity', severity: 'hard', fast: true, title: 'the core boundary: compiler, loaded-file graph, token scan' },
-  { id: 'L-graph', severity: null, fast: true, title: 'the package dependency graph, no cycle' },
-  { id: 'L-lint', severity: null, fast: true, title: 'oxlint ran type-aware, linted more than zero files, no file-level suppression of a boundary rule' },
-  { id: 'L-type-engines', severity: null, fast: true, title: 'exactly ONE type engine, and tsgolint on the same major' },
-  { id: 'L-testshape', severity: null, fast: true, title: 'spec tests carry literal S<n>_ titles and no @ts-expect-error / @ts-nocheck / as any' },
-  { id: 'L-testguard', severity: null, fast: true, title: 'test-guard as a light' },
+  { id: 'L-graph', severity: 'hard', fast: true, title: 'the package dependency graph, no cycle' },
+  { id: 'L-lint', severity: 'hard', fast: true, title: 'oxlint ran type-aware, linted more than zero files, no file-level suppression of a boundary rule' },
+  { id: 'L-type-engines', severity: 'hard', fast: true, title: 'exactly ONE type engine, and tsgolint on the same major' },
+  { id: 'L-testshape', severity: 'hard', fast: true, title: 'spec tests carry literal S<n>_ titles and no @ts-expect-error / @ts-nocheck / as any' },
+  { id: 'L-testguard', severity: 'hard', fast: true, title: 'test-guard as a light' },
   { id: 'L-deps', severity: 'hard', fast: true, title: 'no dependency without a `package:` line and a lockfile change; vendor digest present' },
   { id: 'L-orphans', severity: 'hard', fast: true, title: 'no tracked source outside its project; every test matched by exactly one vitest project' },
-  { id: 'L-visible', severity: null, fast: true, title: 'every blind spot of every walk is declared' },
+  { id: 'L-visible', severity: 'hard', fast: true, title: 'every blind spot of every walk is declared' },
   { id: 'L-generated', severity: 'hard', fast: true, title: 'a generated file is re-generated and diffed, never hand-edited' },
   { id: 'L-stubkit', severity: 'hard', fast: true, title: 'a stub renders no invented data: path, STUB marker, stubkit only' },
   { id: 'L-homes', severity: 'soft', fast: false, title: 'an edit outside the homes a spec named is REPORTED' },
-  { id: 'L-env-parity', severity: null, fast: false, title: 'the core set under node and under jsdom agree case by case' },
-  { id: 'L-browser', severity: null, fast: false, title: 'the e2e lane: CANNOT VERIFY until the browser probe is observed' },
+  { id: 'L-env-parity', severity: 'hard', fast: false, title: 'the core set under node and under jsdom agree case by case' },
+  { id: 'L-browser', severity: 'soft', fast: false, title: 'the e2e lane: CANNOT VERIFY until the browser probe is observed' },
   { id: 'L-artifacts', severity: 'hard', fast: false, title: 'a run of record writes only into its own run directory; one browser run at a time' },
 ];
 export const STANDING_LIGHT_IDS = STANDING_LIGHTS.map((l) => l.id);

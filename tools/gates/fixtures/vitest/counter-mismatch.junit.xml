@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.009449629">
+    <testsuite name="packages/core/test/__cap/one.test.ts" timestamp="2026-11-01T18:41:11.485Z" hostname="Semens-MBP.bbrouter" tests="1" failures="0" errors="0" skipped="0" time="0.009449629">
+        <testcase classname="packages/core/test/__cap/one.test.ts" name="one passed &gt; names the package" time="0.005891993">
+        </testcase>
+    </testsuite>
+</testsuites>

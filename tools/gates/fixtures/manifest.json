@@ -1,0 +1,116 @@
+{
+  "_note": "The provenance of every captured artifact under tools/gates/fixtures. Written by hand, read by tools/gates/probes/readers.mjs (and by its `the captured fixtures are present` self-check in probes/_harness.mjs). Every entry says the exact command that produced the file and whether the bytes are VERBATIM output (real: true) or a named edit of real output (real: false, with `derivedFrom` and `edit`). A fixture nobody can re-capture is a fixture nobody can trust, so re-capture is the cure for a stale one — never a hand edit. No seconds figure is promised anywhere here; the `time`/`start_time` fields inside an artifact are that artifact's own content.",
+  "capturedOn": "2026-11-01",
+  "capturedWith": {
+    "vitest": "5.0.5",
+    "typescript": "7.0.2",
+    "oxlint": "1.90.0",
+    "oxlint-tsgolint": "7.0.2005"
+  },
+  "sources": {
+    "_note": "sha256 of the committed test sources a fixture was captured FROM. A probe that compares a stored artifact against a live source reads these first and SKIPS with `re-capture` when they disagree — a stale fixture must never read as a defect in the reader.",
+    "packages/core/test/skeleton/digest.test.ts": "86f0e36d44a363ea2533ae6f3e6ce1f78f3e14bc6e5b04a30c6d06d258083a79",
+    "packages/core/test/skeleton/marker.test.ts": "15cc0449e9e8ba884cb37b212d0da0facd0dea3c393a2929365a4267085b79d3"
+  },
+  "artifacts": {
+    "vitest/core-skeleton.junit.xml": {
+      "real": true,
+      "command": "vitest run --project core --reporter=junit --outputFile.junit=<abs>",
+      "note": "The committed tree's own core run: 17 cases over 2 files, all green. Carries the case `hashes \"abc\"` as `&quot;abc&quot;`, which is the XML side of the escaping measurement."
+    },
+    "vitest/list-core.json": {
+      "real": false,
+      "derivedFrom": "vitest list --json --project core",
+      "edit": "the absolute `file` values were made repo-relative; every `name` is verbatim, INCLUDING the double-escaped quote (`hashes \\\"abc\\\"` after JSON.parse) that is the whole point of this fixture",
+      "note": "The runner's own collection, the second enumerator. `name` is byte-identical to the JUnit `testcase name` only AFTER the backslash-escaped quote is unescaped — measured; the live absolute-path form is probed live, where it is honest."
+    },
+    "vitest/one-passed.junit.xml": {
+      "real": true,
+      "command": "vitest run --project core --reporter=junit --reporter=json --outputFile.junit=<abs> --outputFile.json=<abs> --retry=0 --no-file-parallelism --passWithNoTests=false test/__cap/one",
+      "note": "One case, passed. Exit 0."
+    },
+    "vitest/one-passed.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 1, numPassedTests 1." },
+    "vitest/all-failed.junit.xml": {
+      "real": true,
+      "command": "the same shape, over a file whose three cases fail differently",
+      "note": "The three measured red signatures in ONE artifact: AssertionError `expected '@cheq/core' to be '@cheq/nope'`, TypeError `completeTask is not a function`, ReferenceError `absentFn is not defined`. Exit 1."
+    },
+    "vitest/all-failed.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 3, numFailedTests 3." },
+    "vitest/skipped-only.junit.xml": {
+      "real": true,
+      "command": "the same shape, over a file with one it.skip and one it.todo",
+      "note": "Two <testcase> elements, each with <skipped/>, suite skipped=\"2\", failures=\"0\" — and the run EXITS 0. The XML cannot tell .skip from .todo; the JSON channel can."
+    },
+    "vitest/skipped-only.json": { "real": true, "command": "the same run's JSON channel", "note": "numPendingTests 1 + numTodoTests 1 = the XML's skipped 2 — the one place the distinction survives." },
+    "vitest/collection-failure.junit.xml": {
+      "real": true,
+      "command": "the same shape, over a file importing ../../src/scheduling/schedule.ts, which does not exist",
+      "note": "MEASURED signature: classname=\"packages/core/test/__cap/collect.test.ts\" (repo-relative) and name=\"test/__cap/collect.test.ts\" (project-relative). They are NOT equal, and name is not the basename either; `classname.endsWith('/' + name)` is what fires."
+    },
+    "vitest/collection-failure.json": {
+      "real": true,
+      "command": "the same run's JSON channel",
+      "note": "MEASURED and previously unmeasured (TD-0005/TD-0012): numTotalTests 0, testResults[0] with status failed, a message, and assertionResults []. So the JSON channel of a run whose ONLY file failed to collect is itself CANNOT VERIFY by the numTotalTests rule."
+    },
+    "vitest/empty-run.junit.xml": {
+      "real": true,
+      "command": "the same shape with --passWithNoTests=true and a filter matching nothing",
+      "note": "MEASURED: tests=\"0\", a well-formed report, and the run EXITS 0. This is the silent green that `tests=\"0\" ⇒ CANNOT VERIFY` exists for."
+    },
+    "vitest/empty-run.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 0, testResults [], and \"success\": true." },
+    "vitest/foreign-file.junit.xml": {
+      "real": true,
+      "command": "node tools/gates/run.mjs test --kind api",
+      "note": "A real run of ANOTHER project: every classname is under apps/api. Asked about a core file, a reader must answer CANNOT VERIFY rather than reading somebody else's green."
+    },
+    "vitest/foreign-file.json": { "real": true, "command": "the same run's JSON channel" },
+    "vitest/counter-mismatch.junit.xml": { "real": true, "command": "a byte copy of vitest/one-passed.junit.xml", "note": "The XML half of the disagreement pair: tests=\"1\"." },
+    "vitest/counter-mismatch.json": {
+      "real": false,
+      "derivedFrom": "vitest/one-passed.json",
+      "edit": "numTotalTests and numPassedTests raised from 1 to 2",
+      "note": "The toolchain has never been observed producing two channels that disagree (TD-0005), so this fixture is the ONLY way to exercise crossCheck's refusal. It is derived, and it says so."
+    },
+    "tsc/core-clean.listfiles.log": {
+      "real": true,
+      "command": "tsc --noEmit --pretty false --listFiles -p packages/core/tsconfig.json",
+      "note": "Clean, 99 --listFiles lines. The lib files are under @typescript/typescript-<platform>/lib/, NOT node_modules/typescript/lib/ — the measured trap."
+    },
+    "tsc/red-ts2322.listfiles.log": {
+      "real": true,
+      "command": "the same, over a scratch project with two deliberate assignment errors",
+      "note": "Two `error TS2322` lines with RELATIVE paths, then 62 absolute --listFiles lines. Exit 1."
+    },
+    "tsc/no-inputs-ts18003.log": {
+      "real": true,
+      "command": "the same, over a tsconfig whose include matches nothing",
+      "note": "One GLOBAL diagnostic with no file position: `error TS18003: No inputs were found in config file`. Exit 2. A configuration that did not load is red, not a clean project."
+    },
+    "tsc/clean-without-listfiles.log": {
+      "real": true,
+      "command": "tsc --noEmit --pretty false -p <clean project>  (no --listFiles)",
+      "note": "EMPTY, zero bytes, exit 0. The measured shape of `never ran is not green`: no diagnostics and no evidence the compiler read anything."
+    },
+    "oxlint/clean.json": {
+      "real": true,
+      "command": "oxlint --type-aware --format=json",
+      "note": "The lint lane green over this tree: number_of_files 49, number_of_rules 243, diagnostics []."
+    },
+    "oxlint/findings.json": {
+      "real": true,
+      "command": "oxlint --format=json src  (in a scratch project with a debugger statement and an empty binding pattern)",
+      "note": "Two diagnostics. `code` is `plugin(rule)` — `eslint(no-debugger)` — and the line/column live in labels[].span, not at the top level."
+    },
+    "oxlint/zero-files.raw.json": {
+      "real": true,
+      "command": "oxlint --format=json <an empty directory>",
+      "note": "MEASURED and not what the design assumed: stdout carries the PROSE line `No files found to lint. Please check your paths and ignore patterns.` BEFORE the JSON, and oxlint exits 1. Since the lint lane's artifact IS oxlint's stdout, the artifact of a zero-file run is not valid JSON at all."
+    },
+    "oxlint/zero-files.derived.json": {
+      "real": false,
+      "derivedFrom": "oxlint/zero-files.raw.json",
+      "edit": "the leading prose line removed",
+      "note": "What the reader's `number_of_files === 0` branch was written against. It is reachable only when a caller strips the prose line, which nothing does today — the raw fixture is the honest one, and this one exists so that branch is still exercised."
+    }
+  }
+}

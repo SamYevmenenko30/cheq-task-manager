@@ -1,0 +1,8 @@
+{ "diagnostics": [{"message": "`debugger` statement is not allowed","code": "eslint(no-debugger)","severity": "error","url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-debugger.html","help": "Remove the debugger statement","filename": "src/dirty.ts","labels": [{"span": {"offset": 41,"length": 9,"line": 2,"column": 3}}]},
+{"message": "Empty object binding pattern","code": "eslint(no-empty-pattern)","severity": "error","url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-empty-pattern.html","help": "Passing `null` or `undefined` will result in runtime error because `null` and `undefined` cannot be destructured.","filename": "src/dirty.ts","labels": [{"span": {"offset": 59,"length": 3,"line": 3,"column": 9}}]}],
+              "number_of_files": 1,
+              "number_of_rules": 126,
+              "threads_count": 16,
+              "start_time": 0.014784587
+            }
+            

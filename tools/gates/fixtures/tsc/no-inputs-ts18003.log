@@ -1,0 +1,1 @@
+error TS18003: No inputs were found in config file '/private/tmp/cap/tsproj/tsconfig.empty.json'. Specified 'include' paths were '["empty/**/*.ts"]' and 'exclude' paths were '[]'.

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0">
+    <testsuite name="packages/core/test/__cap/collect.test.ts" timestamp="2026-11-01T18:41:16.920Z" hostname="Semens-MBP.bbrouter" tests="1" failures="1" errors="0" skipped="0" time="0">
+        <testcase classname="packages/core/test/__cap/collect.test.ts" name="test/__cap/collect.test.ts" time="0">
+            <failure message="Cannot find module &apos;../../src/scheduling/schedule.ts&apos; imported from /Users/semenyevmenenko/work/cheq-task-manager/packages/core/test/__cap/collect.test.ts" type="Error">
+Error: Cannot find module &apos;../../src/scheduling/schedule.ts&apos; imported from /Users/semenyevmenenko/work/cheq-task-manager/packages/core/test/__cap/collect.test.ts
+ ❯ test/__cap/collect.test.ts:2:1
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: &apos;ERR_MODULE_NOT_FOUND&apos; }
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>
