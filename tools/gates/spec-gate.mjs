@@ -488,6 +488,7 @@ function approvalOf(root, id, history) {
     return { verdict: 'cannot-verify', approved: null, stale: false, reasons: [`cannot read the commit history: ${history.reason}`], editedAfter: [] };
   const matching = history.approvals.filter((a) => a.specId === id);
   let editedAfter = [];
+  let selfSigned = false;
   if (matching.length && matching[0].commit) {
     const after = commitsTouching(root, specPath(id), `${matching[0].commit}..HEAD`);
     if (!after.ok)
@@ -499,9 +500,36 @@ function approvalOf(root, id, history) {
         editedAfter: [],
       };
     editedAfter = after.commits;
+
+    // Rule 14 reads "a commit AFTER the spec's last content change", and a commit
+    // is not after ITSELF. `A..HEAD` EXCLUDES A, so an edit made inside the very
+    // commit that carried the trailer was invisible here and a SELF-SIGNED spec
+    // read as approved — the one thing the trailer rule exists to prevent.
+    // Found by gate-probes, which named this range as the cause.
+    //
+    // `git log <commit> -- <path>` lists the commits up to and including <commit>
+    // that touched the path, so membership answers the question without a `~1`
+    // that a root commit does not have.
+    const at = commitsTouching(root, specPath(id), matching[0].commit);
+    if (!at.ok)
+      return {
+        verdict: 'cannot-verify',
+        approved: null,
+        stale: false,
+        reasons: [`cannot tell whether ${short(matching[0].commit)} itself changed ${id}: ${at.reason}`],
+        editedAfter: [],
+      };
+    selfSigned = at.commits.includes(matching[0].commit);
+    if (selfSigned) editedAfter = [matching[0].commit, ...editedAfter];
   }
   const status = approvalStatus({ specId: id, approvals: history.approvals, editedAfter, indented: history.indented });
-  return { ...status, editedAfter };
+  if (selfSigned)
+    status.reasons.unshift(
+      `SELF-SIGNED APPROVAL: the \`spec-approved: ${id}\` trailer is in ${short(matching[0].commit)}, the very commit that ` +
+        `changed the spec — rule 14 requires a commit AFTER the last content change, and a commit is not after itself. ` +
+        `Sign it in a later commit: git commit --allow-empty -m "spec-approved: ${id} <name> <YYYY-MM-DD>"`,
+    );
+  return { ...status, editedAfter, selfSigned };
 }
 
 // ------------------------------------------------- the blockers the lib found

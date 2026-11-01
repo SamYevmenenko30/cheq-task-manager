@@ -427,6 +427,17 @@ const PRODUCER_SOURCE = [
  * unwritten, which is the cannot-verify state.
  */
 function plantProjection(r, { body = PROJECTION_BODY, producer = true } = {}) {
+  // Clear the generated directory of the REPOSITORY's own projections first.
+  // `workspace()` copies docs/** into the fixture (it reads EXTRA_TREES), so once
+  // this repository gained docs/digests/{core-exports,api-routes}.md those files
+  // arrived in every fixture while the manifest planted below declares only this
+  // probe's one projection — and L-generated then correctly failed on "a file
+  // inside a generated directory that no entry declares". The light was right and
+  // the FIXTURE was self-inconsistent: a probe about one projection must not carry
+  // two it says nothing about. Read from git rather than hard-coded, so a third
+  // projection in the repository does not quietly break these probes again.
+  for (const rel of lsFiles(['docs/digests'], { cwd: REPO_ROOT }).files) r.rm(rel);
+
   if (producer) r.write('tools/gates/probe-producer.mjs', PRODUCER_SOURCE);
   setManifestEntries(r, 'tools/gates/generated.json', [
     {
