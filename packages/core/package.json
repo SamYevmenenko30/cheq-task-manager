@@ -1,0 +1,13 @@
+{
+  "name": "@cheq/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Rules, task model, scheduling, persistence shape, determinism. No DOM, no react, no node:*, no network. `dependencies` is exactly {} and that emptiness IS the carrier of rule 1: with node-linker=isolated this package has no node_modules at all, so an undeclared import does not resolve.",
+  "dependencies": {},
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/digest.ts"
+  },
+  "scripts": {}
+}

@@ -1,0 +1,55 @@
+{
+  "_note": [
+    "The GENERATED FILES: committed projections of something a human cannot diff by reading the",
+    "sources. JSON takes no comments, so this is where this file is explained.",
+    "",
+    "HOW IT IS USED. L-generated regenerates every entry into a tmpdir and compares the result",
+    "BYTE FOR BYTE with the committed file. The judge and the generator are the SAME code, which",
+    "is the only arrangement in which 'the digest is current' means anything. On a mismatch the",
+    "light prints 'producer' as the CURE, so the row is actionable without reading this file.",
+    "",
+    "NEITHER PRODUCER EXISTS YET, AND THE CORRECT READING OF THAT IS cannot-verify.",
+    "As of 2026-11-01 tools/gates/digest.mjs is not written and neither digest is committed",
+    "(docs/digests/ does not exist). L-generated must therefore read each entry as",
+    "cannot-verify 'producer not written: tools/gates/digest.mjs' — NOT as a fail. The difference",
+    "is the difference between 'this file is stale' and 'nothing can be said about this file',",
+    "and only the second is true today. 'producerScript' is in every entry precisely so that",
+    "state is DETECTABLE by existsSync rather than guessed at by parsing the command string.",
+    "Hard and cannot-verify blocks exactly as a fail does, so this does not make the lane green —",
+    "it makes it honest.",
+    "",
+    "DETERMINISM IS A HARD REQUIREMENT ON THE PRODUCER, not a preference: no timestamp, stable",
+    "key order, no tool version in the header. A digest that differs between two runs on one tree",
+    "makes L-generated blink, and a blinking hard light gets switched off. The producer carries a",
+    "FORMAT constant instead: bumping it makes every digest stale until one --fix, so a rendering",
+    "change is one visible commit across the tree rather than a quiet drift.",
+    "",
+    "ENTRY SHAPE, checked by manifestProblems() in lights/_shared.mjs:",
+    "  { \"path\": \"<the committed file>\",",
+    "    \"producer\": \"<exact command that rewrites it — printed as the cure, so it must run as written>\",",
+    "    \"producerScript\": \"<the file under tools/ that must exist for the producer to run>\",",
+    "    \"check\": \"<the command that only reports>\",",
+    "    \"sourceRoots\": [\"<repo-relative directory the file is derived from>\"],",
+    "    \"describes\": \"<one sentence: what a reader gets from the projection>\" }",
+    "sourceRoots are literal directories, not globs — see visible.json for why there are no globs",
+    "in any of these manifests."
+  ],
+  "entries": [
+    {
+      "path": "docs/digests/core-exports.md",
+      "producer": "node tools/gates/digest.mjs --fix",
+      "producerScript": "tools/gates/digest.mjs",
+      "check": "node tools/gates/digest.mjs --check",
+      "sourceRoots": ["packages/core/src"],
+      "describes": "Every export of @cheq/core with its signature and file:line, plus the sha256 of the sources it was derived from — the surface a spec may cite and an api/web role may call, readable without opening the package."
+    },
+    {
+      "path": "docs/digests/api-routes.md",
+      "producer": "node tools/gates/digest.mjs --fix",
+      "producerScript": "tools/gates/digest.mjs",
+      "check": "node tools/gates/digest.mjs --check",
+      "sourceRoots": ["apps/api/src"],
+      "describes": "Every route of @cheq/api: method, path, schema names, handler, file:line — the HTTP surface, which is otherwise spread across registration calls nobody can diff."
+    }
+  ]
+}

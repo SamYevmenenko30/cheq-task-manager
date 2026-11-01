@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# machine state — never committed, always read (see ADR-0003)
+.ci/
+coverage/
+playwright-report/
+test-results/
+.vite/
+vite.config.ts.timestamp-*
+
+# local
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store
+.idea/
+.vscode/
+.vitest/
+
+# playwright storage state
+/e2e/.auth/

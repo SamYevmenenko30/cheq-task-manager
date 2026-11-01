@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Bash(npm publish:*)",
+      "Bash(pnpm publish:*)",
+      "Bash(git push:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm remove:*)",
+      "Bash(npm install:*)",
+      "Bash(npx playwright install:*)",
+      "Bash(pnpm exec playwright install:*)",
+      "Write(//Users/semenyevmenenko/Resonance/**)",
+      "Edit(//Users/semenyevmenenko/Resonance/**)"
+    ]
+  }
+}

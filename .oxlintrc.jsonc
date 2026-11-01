@@ -1,0 +1,95 @@
+{
+  // The lint lane. oxlint brings its own parser and has NO dependency on the `typescript`
+  // package; its type-aware rules run on oxlint-tsgolint, which is typescript-go — the same
+  // engine line as the root `tsc`. That is why this repository has exactly ONE type engine.
+  // typescript-eslint cannot be used at all: it refuses TypeScript 7 outright
+  // (typescript-eslint/typescript-eslint#10940) and it is the only TypeScript parser for eslint.
+  //
+  // MEASURED, and the reason several things here look the way they do:
+  //
+  // 1. `--type-aware` is REQUIRED for every rule below marked type-aware. Without the flag they
+  //    do not run and nothing says so — the output looks like a successful lint. Every gate
+  //    passes the flag and records it in run.json.
+  // 2. The `any`-leak family (no-explicit-any, no-unsafe-*) is NOT in any default category and
+  //    must be named here. A config written with `categories` alone silently checks less than
+  //    it appears to.
+  // 3. An unknown rule or plugin name is a hard parse failure, not a warning — so a typo here
+  //    cannot turn into a gate that checks nothing.
+  // 4. The core determinism guard (no hidden clock, no hidden randomness) is deliberately NOT
+  //    here. oxlint has no `no-restricted-syntax`, and a blanket `no-restricted-globals` on
+  //    Date/Math is the wrong shape: it refused `x instanceof Date`, `new Date(0)` and
+  //    `Math.floor` — a type, a fixed value and arithmetic, none of them a clock. The precise
+  //    check lives in the L-core-purity token scan, which forbids `new Date()` and `Date.now()`
+  //    while allowing `new Date(<literal>)`.
+  // 5. Suppression: only the FILE-level `// oxlint-disable <rule>` works on a type-aware rule;
+  //    `-disable-next-line` does not suppress it. L-lint fails on a file-level disable that
+  //    names a boundary rule.
+
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+
+  "plugins": ["typescript", "react", "react-perf", "import", "unicorn", "oxc", "vitest"],
+
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn",
+    "pedantic": "off",
+  },
+
+  "rules": {
+    // The automatic JSX runtime is in use (jsx: "react-jsx"), so React need not be in scope.
+    "react/react-in-jsx-scope": "off",
+
+    // type-aware: the bug classes `tsc --noEmit` does NOT report.
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+
+    // type-aware: the `any`-leak family. Named explicitly — see note 2 above.
+    "typescript/no-explicit-any": "error",
+    "typescript/no-unsafe-argument": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-return": "error",
+
+    "typescript/no-non-null-assertion": "error",
+    "typescript/consistent-type-imports": "error",
+  },
+
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/playwright-report/**",
+    "**/test-results/**",
+    ".ci/**",
+    ".vitest/**",
+  ],
+
+  "overrides": [
+    {
+      // tools/gates is plain JavaScript on purpose: zero dependencies, so it runs in a fresh
+      // worktree before an install finishes, and no build step between a gate and its run.
+      // To a type-aware rule every value in an untyped .mjs is `any`, so the whole any-leak
+      // family fires on all of it — MEASURED: 1751 diagnostics across 12 files, every one of
+      // them no-unsafe-*. That is noise with no signal in it: there are no type annotations for
+      // the rules to protect. The gates are judged by gate-probes, which plants a defect and
+      // checks the gate caught it, not by rules that assume TypeScript. Every OTHER rule —
+      // correctness, suspicious, unicorn, import — still applies here.
+      "files": ["tools/**/*.mjs"],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off",
+      },
+    },
+    {
+      // A test may assert on a value the types call optional; a source may not.
+      "files": ["**/test/**/*.ts", "**/test/**/*.tsx", "**/*.test.ts", "**/*.test.tsx"],
+      "rules": { "typescript/no-non-null-assertion": "off" },
+    },
+  ],
+}

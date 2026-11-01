@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The purity boundary is enforced by the COMPILER, not only by a lint rule:
+    // no "DOM" in lib and no ambient types means `document`, `window`, `process`
+    // and `require` do not typecheck inside this package at all.
+    "lib": ["ES2023"],
+    "types": [],
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

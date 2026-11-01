@@ -1,0 +1,23 @@
+#!/bin/sh
+# WHAT THIS HOOK SEES: the range-based gates (spec-gate, test-guard, L-deps) read HEAD — the
+# PREVIOUS commit — because no gate reads the index. The filesystem lights (L-core-purity,
+# L-graph, L-orphans, L-testshape, L-generated, L-visible) see the working tree, i.e. what is
+# about to be committed. The commit being created is checked in full by the next
+# `node tools/gates/ready.mjs` — that is the check of record before a push. red-check never
+# runs in a hook: it needs a worktree and a base run.
+#
+# Installed by: git config core.hooksPath .githooks
+if [ -n "$CHEQ_SKIP_HOOKS" ]; then
+  echo "[pre-commit] skipped via CHEQ_SKIP_HOOKS — run 'pnpm ready' before pushing"
+  exit 0
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "[pre-commit] node not on PATH — the gates cannot run, and never ran is not green."
+  exit 1
+fi
+node tools/gates/ready.mjs --quick --pending-implementation-tolerance
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "[pre-commit] NOT READY. Escape once with: CHEQ_SKIP_HOOKS=1 git commit …  (then run: pnpm ready)"
+fi
+exit $status

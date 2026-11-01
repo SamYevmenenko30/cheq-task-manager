@@ -1,0 +1,12 @@
+{
+  "name": "@cheq/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fastify adapter: maps HTTP to @cheq/core calls and core state back to responses. Holds no rules of its own.",
+  "dependencies": {
+    "@cheq/core": "workspace:*",
+    "fastify": "^5.12.7"
+  },
+  "scripts": {}
+}

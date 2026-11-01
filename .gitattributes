@@ -1,0 +1,13 @@
+# One line ending for every text file in the repository: a gate that diffs text
+# must not see a \r it did not put there.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
