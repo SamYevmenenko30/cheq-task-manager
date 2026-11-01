@@ -332,7 +332,22 @@ export function judgeRun(root, name) {
     problems.push(`${runJsonPath(dirRel)}: argv=${JSON.stringify(data.argv)} is not an array — it is the wrapper's own process.argv.slice(2), and the judged tools' argvs are in steps[]`);
 
   const steps = Array.isArray(data.steps) ? data.steps : null;
-  if (steps === null) {
+
+  // A GATE's own record is not a run of record. spec-gate and test-guard write
+  // `run.json` to say which commit and range they judged; they spawn no runner,
+  // so there is no argv of a judged tool to read back and `steps` is rightly
+  // absent. The shared contract agrees: RUN_JSON_REQUIRED in ../lib/run-dir.mjs
+  // is head/treeClean/argv/exitCode/startedAt/kind and does NOT include
+  // `steps`. Demanding it of a gate directory made this light stricter than the
+  // contract it enforces, which is the one way a light can be wrong while
+  // looking rigorous — it turned a compliant record into CANNOT VERIFY and
+  // blocked the pack. A gate record identifies itself with `gate`.
+  const isGateRecord = typeof data.gate === 'string' && data.gate.length > 0;
+  if (isGateRecord && steps === null) {
+    notes.push(
+      `${runJsonPath(dirRel)}: the record of gate "${data.gate}", not a run of record — it spawned no judged tool, so it carries no "steps" and none is required (RUN_JSON_REQUIRED, ../lib/run-dir.mjs)`,
+    );
+  } else if (steps === null) {
     unknowns.push(
       `${runJsonPath(dirRel)}: no "steps" array — the judged tools' argvs live there (tools/gates/run.mjs:893), and without them --passWithNoTests=false, --retry=0 and --type-aware cannot be read back out of this run`,
     );
