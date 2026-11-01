@@ -111,6 +111,7 @@
 import { basename, dirname } from 'node:path';
 
 import { EMPTY_TREE, diffNames, hasCommits, logBodies, lsFiles, showAtHead, showAtRev } from '../lib/git.mjs';
+import { byCodepoint } from './_shared.mjs';
 import { parseTrailers } from '../lib/trailers.mjs';
 
 export const id = 'L-deps';
