@@ -10,9 +10,19 @@ export default defineConfig({
   testDir: './e2e',
   retries: 0,
   forbidOnly: true,
-  reporter: [
-    ['junit', { outputFile: '.ci/runs/latest-e2e/e2e.junit.xml' }],
-    ['json', { outputFile: '.ci/runs/latest-e2e/e2e.json' }],
-  ],
+  // No outputFile here, on purpose. A fixed path like `.ci/runs/latest-e2e/` is
+  // ONE directory every run of the lane overwrites, so the artifacts in it belong
+  // to no run and carry no run.json — which is exactly what L-artifacts refuses,
+  // and it refused this file (tools/gates/lights/artifacts.mjs). The per-run
+  // directory comes from makeRunDir() and reaches Playwright through the two
+  // environment variables the wrapper sets (tools/gates/run.mjs), so the path is
+  // named by the run that will be judged, not by this config.
+  // junit only. The wrapper redirects exactly one reporter per run
+  // (PLAYWRIGHT_JUNIT_OUTPUT_NAME, tools/gates/run.mjs), so a `json` entry here
+  // would promise a second channel nobody routes into the run directory — and
+  // the vitest lanes' cross-check between two channels has no counterpart here.
+  // That asymmetry is a limit of the browser lane, not something to paper over
+  // with a reporter writing to a path no gate reads.
+  reporter: [['junit']],
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });
