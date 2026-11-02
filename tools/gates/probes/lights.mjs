@@ -111,13 +111,14 @@ import { lsFiles } from '../lib/git.mjs';
 import { lockKey } from '../lib/probe.mjs';
 import { stampOf } from '../lib/run-dir.mjs';
 import { SEVERITIES, STANDING_LIGHTS, STANDING_LIGHT_IDS, severityOf } from '../lib/spec-parse.mjs';
-import { readPackages, readPremises } from '../lights/_shared.mjs';
+import { readPremises } from '../lights/_shared.mjs';
 import { bareVersion, digestRel, readLockImporters } from '../lights/deps.mjs';
 import {
   REPO_ROOT,
   assert,
   assertLight,
   copyGates,
+  copyPackageNodeModules,
   havePremise,
   linkNodeModules,
   loadLight,
@@ -184,14 +185,11 @@ function workspace(label, { resolve = false, vendorDigests = false, commit = 'ch
     );
   }
 
-  if (resolve) {
-    for (const pkg of readPackages(REPO_ROOT).packages) {
-      const nm = join(REPO_ROOT, pkg.rel, 'node_modules');
-      // Copied as symlinks (cpSync does not dereference), so the relative
-      // targets resolve inside the fixture — fact 2.
-      if (existsSync(nm)) r.copyFrom(nm, `${pkg.rel}/node_modules`);
-    }
-  }
+  // `copyPackageNodeModules` owns the mechanism, in `./_harness.mjs`, next to
+  // `linkNodeModules` and under a probe of its own: the copy must keep pnpm's
+  // relative symlinks VERBATIM, or the fixture resolves this repository's packages
+  // instead of its own and every probe here judges the wrong tree.
+  if (resolve) copyPackageNodeModules(r);
   if (vendorDigests) plantVendorDigests(r);
 
   const linked = linkNodeModules(r);
@@ -704,7 +702,13 @@ export const probes = [
     fx.r.git(['add', '-A']);
     const row = await light(fx, 'L-core-purity');
     assertLight(row, 'fail', /apps\/api\/src\/index\.ts is an IN-REPO input of packages\/core\/tsconfig\.json from outside packages\/core/, 'L-core-purity with a relative escape out of the pure package');
-    alsoMatches(row, 'L-core-purity with a relative escape', /owned by @cheq\/api/, /1 in-repo elsewhere/);
+    // `1 in-repo elsewhere` was the size of the product, not the claim — the same over-reading its
+    // sibling below already corrected. The planted import names `apps/api/src/index.ts`, which
+    // re-exports three more modules, so the count went 1 → 4 the day CHQ-002 gave @cheq/api real
+    // code and this probe failed for a reason it is not about. The claim is that an escape out of
+    // the pure package is CAUGHT and the owner named; that it caught at least one is the number
+    // worth asserting.
+    alsoMatches(row, 'L-core-purity with a relative escape', /owned by @cheq\/api/, /[1-9]\d* in-repo elsewhere/);
     fx.r.cleanup();
     return null;
   }),
@@ -1259,7 +1263,16 @@ export const probes = [
     const fx = workspace('visible-jest-default');
     const cfg = fx.r.read('jest.config.mjs');
     for (const key of ['testPathIgnorePatterns', 'modulePathIgnorePatterns']) {
-      assert(!cfg.includes(key), `jest.config.mjs declares ${key}, so this probe is no longer about the default — re-point it at whatever the config now says`);
+      // A DECLARATION, not a mention. `cfg.includes(key)` also matched the config's own prose —
+      // `jest.config.mjs:48` names both keys while explaining that `transformIgnorePatterns` is
+      // not one of them (TD-0016) — so from the commit that wrote that comment this guard fired on
+      // a config that still declares neither key, and said the probe was stale when it was not.
+      // Anchored to the start of a line and followed by its colon, it reads the object's keys;
+      // a `//` comment can no longer be one of them.
+      assert(
+        !new RegExp(`^\\s*${key}\\s*:`, 'm').test(cfg),
+        `jest.config.mjs DECLARES ${key}, so this probe is no longer about the runner default — re-point it at whatever the config now says`,
+      );
     }
     const row = await light(fx, 'L-visible');
     assertLight(row, 'pass', /four doors checked over packages \+ apps \+ e2e/, 'L-visible on an untouched copy, where the fourth door is the runner default');

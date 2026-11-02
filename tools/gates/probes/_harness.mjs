@@ -123,7 +123,7 @@
  * after a probe fails and the question is what the fixture actually looked like.
  */
 
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -131,7 +131,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { lsFiles } from '../lib/git.mjs';
 import { CHILD_ENV } from '../run.mjs';
-import { normalizeResult, readPremises, sh } from '../lights/_shared.mjs';
+import { normalizeResult, readPackages, readPremises, sh } from '../lights/_shared.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -548,10 +548,13 @@ export function scratchRepo({ label = 'probe' } = {}) {
     rm(rel) {
       rmSync(join(dir, rel), { recursive: true, force: true });
     },
-    copyFrom(abs, rel) {
+    /** `opts` reaches `cpSync` verbatim. The one caller that needs it is the copy of
+     *  a `node_modules` symlink farm, which must pass `verbatimSymlinks: true` — see
+     *  `copyPackageNodeModules`. */
+    copyFrom(abs, rel, opts = {}) {
       const target = join(dir, rel);
       mkdirSync(dirname(target), { recursive: true });
-      cpSync(abs, target, { recursive: true });
+      cpSync(abs, target, { recursive: true, ...opts });
       return target;
     },
     add(pathspec = '-A') {
@@ -743,6 +746,53 @@ export function copyGates(r, { include = ['lib', 'lights', 'gates', 'manifests']
   return { copied };
 }
 
+/**
+ * Copy each workspace package's own `node_modules` — pnpm's per-package symlink
+ * farm — into the fixture, so a module specifier resolves the way it does in this
+ * repository. `packages/core` declares no dependencies and needs none of it; a
+ * fixture that must resolve `fastify` inside `apps/api`, or `@cheq/core` from it,
+ * does.
+ *
+ * `verbatimSymlinks: true` IS THE WHOLE POINT, and its absence was a defect this
+ * harness carried. `cpSync` defaults to `verbatimSymlinks: false`, which REWRITES a
+ * relative symlink's target to an absolute path — measured in isolation:
+ *
+ *     src/nm/link -> ../target
+ *     default  : /private/var/folders/…/tmp.XXXX/src/target
+ *     verbatim : ../target
+ *
+ * So with the default, this repository's `apps/api/node_modules/@cheq/core ->
+ * ../../../../packages/core` became, inside the fixture, an absolute link to
+ * `/Users/…/cheq-task-manager/packages/core`, and `tsc -p apps/api/tsconfig.json`
+ * run in the fixture compiled THIS repository's core rather than the fixture's own
+ * (measured 2026-11-02 by `--traceResolution`: "Module name '@cheq/core' was
+ * successfully resolved to /Users/…/cheq-task-manager/packages/core/src/index.ts").
+ * Every `resolve: true` probe was therefore judging a tree it had not planted its
+ * defect in. `L-graph REVERSE` was the only one that noticed, because that light
+ * reports inputs from outside the repository under judgement.
+ *
+ * Copied verbatim, the same link resolves to the FIXTURE's `packages/core`, while
+ * the relative hops into `node_modules/.pnpm/…` still land in the real install
+ * through the root symlink `linkNodeModules` makes — which is what keeps the
+ * fixture install-free.
+ *
+ * → { copied: [rel], absent: [rel] }
+ */
+export function copyPackageNodeModules(r) {
+  const copied = [];
+  const absent = [];
+  for (const pkg of readPackages(REPO_ROOT).packages) {
+    const rel = `${pkg.rel}/node_modules`;
+    if (!existsSync(join(REPO_ROOT, rel))) {
+      absent.push(rel);
+      continue;
+    }
+    r.copyFrom(join(REPO_ROOT, rel), rel, { verbatimSymlinks: true });
+    copied.push(rel);
+  }
+  return { copied, absent };
+}
+
 /** Symlink this repository's `node_modules` into the fixture. Never an install. */
 export function linkNodeModules(r) {
   const src = join(REPO_ROOT, 'node_modules');
@@ -908,9 +958,48 @@ export const selfProbes = [
 
     // A LIMIT of this fixture, named here because the other two groups will hit
     // it: the workspace packages' own `node_modules` (pnpm's per-package symlink
-    // farm) are gitignored and therefore NOT copied. Only the root install is
-    // reachable, which is enough for packages/core (it declares no dependencies)
-    // and NOT enough for a fixture that needs `fastify` resolved inside apps/api.
+    // farm) are gitignored and therefore NOT copied by `writeWorkspace`. Only the
+    // root install is reachable, which is enough for packages/core (it declares no
+    // dependencies) and NOT enough for a fixture that needs `fastify` resolved
+    // inside apps/api. `copyPackageNodeModules` is what lifts it, and the probe
+    // below is what proves the lift does not reach back into this repository.
+    r.cleanup();
+    return null;
+  }),
+
+  probe('copyPackageNodeModules leaves a fixture resolving its OWN packages, not this repository\'s', (ctx) => {
+    if (!havePremise(ctx, 'tsc')) return skipped(`premise "tsc" absent: ${ctx.premises.tsc.rel} does not exist — ${ctx.premises.tsc.cure}`);
+    const r = scratchRepo({ label: 'harness-selfcontained' });
+    writeWorkspace(r, { lock: true });
+    const nm = copyPackageNodeModules(r);
+    assert(nm.copied.includes('apps/api/node_modules'), `the copy must bring apps/api/node_modules; it brought ${nm.copied.join(', ') || 'nothing'} and found none at ${nm.absent.join(', ')}`);
+    const linked = linkNodeModules(r);
+    assert(linked.linked, `the fixture must reach node_modules without an install: ${linked.reason}`);
+
+    // The property, read straight off the link rather than inferred: a RELATIVE
+    // target is what keeps the hop inside the fixture. `cpSync` rewrites it to an
+    // absolute path unless `verbatimSymlinks` is set, and that rewrite is the
+    // defect this probe exists for.
+    const link = join(r.dir, 'apps/api/node_modules/@cheq/core');
+    const target = existsSync(link) ? readlinkSync(link) : null;
+    assert(
+      target !== null && target.startsWith('..'),
+      `apps/api/node_modules/@cheq/core must be a RELATIVE symlink so it resolves inside the fixture; it reads ${JSON.stringify(target)}`,
+    );
+
+    // And the consequence, asked of the compiler: no SOURCE of this repository may
+    // appear among the inputs. The real `node_modules` legitimately does — that is
+    // the symlink above, and the reason the fixture needs no install of its own.
+    const res = runBin('tsc', ['--noEmit', '--pretty', 'false', '--listFiles', '-p', 'apps/api/tsconfig.json'], { cwd: r.dir });
+    assert(res.status === 0, `tsc must be green on the copied skeleton, it exited ${String(res.status)}:\n${res.out.split('\n').slice(0, 6).join('\n')}`);
+    const foreign = res.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith(`${REPO_ROOT}/packages/`) || l.startsWith(`${REPO_ROOT}/apps/`));
+    assert(
+      foreign.length === 0,
+      `tsc in the fixture read ${foreign.length} source(s) of THIS repository, so a defect planted in the fixture would be judged against a tree that does not hold it: ${foreign.slice(0, 4).join(', ')}`,
+    );
     r.cleanup();
     return null;
   }),
