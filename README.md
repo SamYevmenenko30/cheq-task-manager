@@ -417,37 +417,26 @@ The level is derived from the outcome, so a 4xx is `warn` and a 5xx would be `er
 
 ### AI utilization
 
-I used Claude Code throughout, as the pair that writes the first draft and runs the measurements,
-with the method in this repository as the thing that keeps it honest: a spec is written and signed,
-tests are written from the spec and **proven red** before any implementation exists, and every
-verdict is read from an artifact on disk rather than from a process's exit code. That last rule
-exists because AI output is confident whether or not it is correct, and an exit code is the easiest
-thing in the world to misread.
+Built with Claude Code inside a spec-first pipeline of my own: specs are signed before tests exist,
+tests are proven red before any implementation, and every verdict — types, tests, lint, a deploy —
+is read from an artifact on disk rather than from an exit code. That last rule is there because
+model output is confident whether or not it is right.
 
-It was most useful for breadth — the Terraform, the Dockerfile, the workflow and the gate scripts
-are far more thorough than I would have written by hand in the time — and least useful anywhere a
-claim needed to be *checked* rather than produced.
+It earned its keep on breadth: the Terraform, the Dockerfile, the workflow and the gate scripts are
+more thorough than I would have written by hand in the time. It needed the harness anywhere a claim
+had to be *checked* rather than produced. The infrastructure was going to be ECR plus **App Runner**
+until three independent attempts at the same question disagreed, and one reported that AWS closed
+App Runner to new customers on 2026-04-30 — their own documentation says so, and this account is
+newer than that. One of the three confidently proposed the service that cannot be created. The same
+comparison killed a second defect: two of the three mapped CloudFront's `403/404` to `/index.html`
+with status `200` for SPA routing, which turns a genuine API `404` into an HTML page with status
+`200`, because that mapping is per distribution rather than per behaviour. Hence no
+`custom_error_response` in `infra/cdn.tf`.
 
-**One instance where I had to correct it.** The infrastructure was going to be ECR plus **App
-Runner**, and two sessions of work assumed it. When I had three independent attempts produce the
-shape separately and compare them, one of them reported that AWS closed App Runner to new customers
-on 2026-04-30. I did not take that on faith — I read AWS's own documentation, which says it
-plainly — and the whole plan was dead: this account was created after that date. Two of the three
-attempts knew; one confidently proposed the service that cannot be created. Had I asked one AI for
-an answer and taken it, I would have shipped infrastructure that cannot be applied, and found out at
-`terraform apply` the night before the interview. The disagreement record is in
-[`docs/specs/CHQ-005.probe-hosting.md`](docs/specs/CHQ-005.probe-hosting.md), including the sharper
-finding: two of the three shapes mapped CloudFront's `403/404` to `/index.html` with status 200 for
-SPA routing, which — because that mapping is per distribution and not per behaviour — would have
-turned a genuine API `404` into an HTML page with status `200`. The third named the mechanism. That
-is why there is no `custom_error_response` in `infra/cdn.tf`.
-
-Smaller corrections of the same kind, each now a written-down debt rather than a surprise: a test
-that reported green while asserting nothing, a gate that could not name why anything was red, a
-coverage figure measured over test plumbing instead of the product, and a gate rule that demanded a
-test file for an assertion whose runner can never execute — which made one spec literally unfixable
-until the rule was narrowed.
-
+Smaller, same shape: a test that reported green while asserting nothing, a coverage figure measured
+over test plumbing instead of the product, and a conclusion about this AWS account that a later
+measurement contradicted. Each is a commit that says what was wrong, not a quiet edit. The full
+record is [`docs/specs/CHQ-005.probe-hosting.md`](docs/specs/CHQ-005.probe-hosting.md).
 ---
 
 ## Repository map
