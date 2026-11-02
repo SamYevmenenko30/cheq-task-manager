@@ -38,6 +38,37 @@ done — the lanes drive Jest (`jest.config.mjs`), and a spec's `verify:` derive
 `jest-<kind>`, so the runner a spec names is the runner the lanes drive. It no
 longer blocks CHQ-001's test phase.
 
+## Which tickets take the three phases, and which do not
+
+Decided 2026-11-02, after CHQ-001 went through the full cycle. **CHQ-001, CHQ-002 and CHQ-003 take
+all three phases. CHQ-004, CHQ-005 and CHQ-006 do not.**
+
+The three phases exist to make one thing impossible: an assertion that was never able to fail. That
+is worth three sessions when there is BUSINESS LOGIC behind the assertion — a title rule, a status
+code, a rendered state — because such a test can be red for an interesting reason and green for a
+different one, and `red-check` proving it red on the base is what separates the two.
+
+A Dockerfile, a Terraform module and a CI workflow have no such reason. A red test over a
+Dockerfile asserts that the file is absent; it goes green the moment the file exists, whatever is in
+it, so the red phase measures the filesystem and not the work. The honest check for a container is
+that the image BUILDS and the container ANSWERS, and for infrastructure that the plan applies — and
+those are verdicts read from artifacts, which is the project's actual principle (ADR-0002). The
+three phases are one way of serving it, not the principle itself.
+
+So for CHQ-004 to CHQ-006 the shape is:
+
+| | |
+|---|---|
+| **no spec file, no `S<n>`, no red phase** | there is no assertion a runner can run red on the base, and a ticket with none would be a spec that contracts nothing — which `spec-gate` rule 6 refuses by name |
+| **the acceptance is a COMMAND and its artifact** | `docker build` then a request to the running container; `terraform validate` and `plan`; the workflow's own run. Each lands in the commit that lands the config, and the commit message names the command, what it wrote and where |
+| **a light where the check is cheap and repeatable** | a lane that can run on every commit becomes a `## Lights` row of the ticket that needs it, with the artifact it reads. A check that needs AWS credentials or a network is not that, and is named as a one-off with its output quoted instead |
+| **the README carries the reasoning** | CHQ-007 already owes the hosting choice and the deployment story; this is where the judgement a reviewer will ask about lives, rather than in a spec that pretends to assert it |
+
+What this does NOT relax: the gates. `L-deps`, `L-visible`, `L-generated`, `L-testguard` and the
+rest judge those commits exactly as they judge any other, and `ready` still has to print READY
+before a push. The short path drops the RED PHASE, which has nothing to measure there — not the
+verdict-from-an-artifact rule, which is the whole point of the pipeline.
+
 ## Where a wave belongs, and where it does not
 
 A wave is for a fork the vision text does not decide
