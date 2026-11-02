@@ -687,7 +687,11 @@ export const probes = [
     fx.r.git(['add', '-A']);
     const row = await light(fx, 'L-core-purity');
     assertLight(row, 'pass', /three levels pass/, 'L-core-purity on the five legal forms');
-    alsoMatches(row, 'L-core-purity on the legal forms', /level 3 scanned 6\/6 source\(s\)/, /level 2 numeric: 6 input\(s\) == 6 tracked/);
+    // The RELATION, never the count. These pinned `6/6` and `6 input(s) == 6 tracked`, which is an
+    // assertion about how big the product is: both broke the moment CHQ-001's implementation landed
+    // and would break again on every ticket (measured 2026-11-02). What the light claims is that the
+    // two numbers AGREE and that every source was scanned, so a back-reference says exactly that.
+    alsoMatches(row, 'L-core-purity on the legal forms', /level 3 scanned (\d+)\/\1 source\(s\)/, /level 2 numeric: (\d+) input\(s\) == \1 tracked/);
     fx.r.cleanup();
     return null;
   }),
@@ -712,7 +716,9 @@ export const probes = [
     writeCoreTsconfig(fx.r, { include: ['src/index.ts'] });
     const row = await light(fx, 'L-core-purity');
     assertLight(row, 'fail', /tracked source\(s\) under packages\/core that the compiler NEVER READ/, 'L-core-purity with the core include narrowed to one file');
-    alsoMatches(row, 'L-core-purity with a narrowed include', /packages\/core\/test\/skeleton\/marker\.test\.ts/, /closure: 1 inside/);
+    // `closure: 1 inside` was the size of the product, not the claim. The claim — that a narrowed
+    // include leaves tracked sources the compiler never read — is in the problem text above.
+    alsoMatches(row, 'L-core-purity with a narrowed include', /packages\/core\/test\/skeleton\/marker\.test\.ts/, /closure: \d+ inside/);
     fx.r.cleanup();
     return null;
   }),
@@ -1046,13 +1052,17 @@ export const probes = [
     const skip = needTsc(ctx);
     if (skip !== null) return skip;
     const fx = workspace('orphans-contract', { resolve: true });
-    const contract = 'packages/core/src/contracts/CHQ-001/task.ts';
-    fx.r.write(contract, 'export interface Task { readonly id: string }\n');
+    // CHQ-999 on purpose: a ticket this repository does not have. Using CHQ-001 worked only while
+    // the product had no implementation — once `src/index.ts` imported the real CHQ-001 contract an
+    // entry point reached it and there was no note left to assert (measured 2026-11-02). A probe
+    // builds the state it judges; it does not borrow the product's.
+    const contract = 'packages/core/src/contracts/CHQ-999/task.ts';
+    fx.r.write(contract, 'export interface Probed { readonly id: string }\n');
     fx.r.write(
-      'packages/core/test/CHQ-001/S1_shape.test.ts',
-      "import { it, expect } from '@jest/globals';\nimport type { Task } from '../../src/contracts/CHQ-001/task.ts';\nit('S1_shape: the shape is fixed', () => { const t: Task = { id: 'a' }; expect(t.id).toBe('a'); });\n",
+      'packages/core/test/CHQ-999/S1_shape.test.ts',
+      "import { it, expect } from '@jest/globals';\nimport type { Probed } from '../../src/contracts/CHQ-999/task.ts';\nit('S1_shape: the shape is fixed', () => { const t: Probed = { id: 'a' }; expect(t.id).toBe('a'); });\n",
     );
-    fx.r.commit('test(CHQ-001): the contract and the test that reaches it');
+    fx.r.commit('test(CHQ-999): the contract and the test that reaches it');
     const exempt = await light(fx, 'L-orphans');
     assertLight(exempt, 'pass', /a spec contract reached by the tests and not yet by an entry point/, 'L-orphans with a spec contract in the state the method prescribes');
     alsoMatches(exempt, 'L-orphans tolerating a spec contract', /TD-0014/);
@@ -1084,7 +1094,10 @@ export const probes = [
       "import { it, expect } from '@jest/globals';\n" +
         "import * as core from '../../src/index.ts';\n" +
         'type Create = (t: string) => Promise<string>;\n' +
-        'const create: Create = core.createTask;\n' +
+        // A name nothing in this repository exports, for the same reason CHQ-999 is used above:
+        // `createTask` existed the moment CHQ-001 was implemented and the pending state this probe
+        // measures simply vanished (measured 2026-11-02).
+        'const create: Create = core.neverWrittenAnywhere;\n' +
         "it('S1_pending: the symbol is not written yet', async () => { await expect(create('a')).resolves.toBe('a'); });\n",
     );
     fx.r.commit('test(CHQ-001): a spec test reaching an unwritten symbol');

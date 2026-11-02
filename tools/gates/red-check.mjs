@@ -136,8 +136,10 @@
  *     package, which is `not-installed` and still blocks, because it says nothing about the test.
  *
  * The name check can only DISQUALIFY. `git grep -w` over every `packages/<pkg>/src` and
- * `apps/<app>/src` at BOTH revisions answers "did this name ever exist": if it DID, the red is a
- * regression and not an absent implementation, so the verdict drops to CANNOT VERIFY. The converse
+ * `apps/<app>/src` AT THE BASE answers "did this name exist in the tree the test was run against":
+ * if it DID, the red is a regression and not an absent implementation, so the verdict drops to
+ * CANNOT VERIFY. The base and not HEAD, because asking at HEAD made this gate answer differently
+ * depending on when it ran — see `everWritten`. The converse
  * is NOT a proof — lib/junit-xml.mjs:291-296 measured that the name in a `TypeError` is whatever
  * the expression was CALLED as, so a test that binds the symbol to a local first reports the
  * local's name. That is exactly why the label says `weaker` instead of `red`.
@@ -490,11 +492,33 @@ function collectScope(ctx) {
 // which is why the recursive `**` is there.
 const SRC_PATHSPEC = [':(glob)packages/*/src/**', ':(glob)apps/*/src/**'];
 
-/** `git grep -w` at BOTH revisions: did this name ever exist in a source tree? */
+/**
+ * `git grep -w` AT THE BASE: did this name exist in a source tree the test was run against?
+ *
+ * THE BASE AND NOTHING ELSE, and that is the whole correction. It used to ask at `[mergeBase,
+ * 'HEAD']` — "did this name EVER exist" — and the HEAD arm made this gate's verdict depend on WHEN
+ * it was asked. MEASURED on CHQ-001, 2026-11-02: the same commit pair read `all 7 added test
+ * file(s) individually red on the base ✓` before the implementation landed, and CANNOT VERIFY —
+ * "1 diagnostic(s) name something that was already written" — twenty minutes later, with not one
+ * byte of either commit changed. Only `packages/core/src/tasks/create-task.ts` had arrived.
+ *
+ * That is worse than a gate refusing a legal state, which is what the other six defects of that
+ * day were: it makes the VERDICT OF RECORD unreproducible, and a record nobody can re-derive is
+ * not a record. A reviewer re-running the gate over a merged branch would be told the test phase
+ * had never been proven.
+ *
+ * The question this answers is "the test was red on the BASE — was that a regression, or an
+ * implementation that is simply not written yet?", and only the base can answer it. The HEAD arm
+ * added exactly one case: a name absent at the base and present at HEAD, which is the implementation
+ * landing INSIDE the range — the method working as designed, reported as if it were suspicious.
+ *
+ * Still only able to DISQUALIFY, for the reason the header gives: the name in a `TypeError` is
+ * whatever the expression was CALLED as, so a hit is evidence and a miss is not a proof.
+ */
 function everWritten(ctx, name) {
   if (typeof name !== 'string' || !name) return null;
   if (!ctx.writtenCache.has(name)) {
-    const hit = [ctx.mergeBase, 'HEAD'].some((rev) => git(['grep', '-q', '-w', '-e', name, rev, '--', ...SRC_PATHSPEC], { cwd: ctx.root }).code === 0);
+    const hit = git(['grep', '-q', '-w', '-e', name, ctx.mergeBase, '--', ...SRC_PATHSPEC], { cwd: ctx.root }).code === 0;
     ctx.writtenCache.set(name, hit);
   }
   return ctx.writtenCache.get(name);

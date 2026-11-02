@@ -638,12 +638,24 @@ export const WORKSPACE_TREES = Object.freeze(['packages', 'apps', 'e2e']);
  * failure named a TS2339 for a symbol nobody has written yet.
  *
  * That is the phase, not a defect, and it would recur on every ticket: a probe about the HARNESS
- * cannot depend on which phase the product happens to be in. So the baseline excludes the two
- * places per-ticket work in flight lives — `<pkg>/test/CHQ-nnn/` and `<pkg>/src/contracts/CHQ-nnn/`
- * — and a probe that wants a spec test writes its own, which is what every probe here already does.
- * The skeleton fixtures under `test/skeleton/` are NOT excluded: they are the green baseline.
+ * cannot depend on which phase the product happens to be in. So the baseline excludes the spec TEST
+ * directories, and a probe that wants a spec test writes its own — which is what every probe here
+ * already does. The skeleton fixtures under `test/skeleton/` are NOT excluded: they are the green
+ * baseline.
+ *
+ * SPEC CONTRACTS ARE NOT EXCLUDED, and the first version of this pattern wrongly excluded them.
+ * `src/contracts/CHQ-nnn/` holds types the test phase placed on the PRODUCTION side, and once
+ * `implement-to-green` lands, `src/index.ts` — which every fixture copies — imports them. Dropping
+ * them left the fixture importing a path it did not have, so it could not typecheck, and EIGHTEEN
+ * probes failed on a baseline that was broken rather than red (measured 2026-11-02, right after
+ * CHQ-001's implementation landed). It was invisible before that only because nothing in production
+ * reached the contracts yet.
+ *
+ * The original measurement said as much and was over-read: all ten failures that motivated the
+ * exclusion were TS2339 diagnostics from TEST files, not one from a contract. A contracts file is
+ * self-contained types and typechecks on its own in either phase, so it belongs in the baseline.
  */
-const IN_FLIGHT_RE = /(?:^|\/)(?:test|src\/contracts)\/CHQ-\d{3}\//;
+const IN_FLIGHT_RE = /(?:^|\/)test\/CHQ-\d{3}\//;
 
 /**
  * Fill a scratch repo with THIS repository's skeleton.

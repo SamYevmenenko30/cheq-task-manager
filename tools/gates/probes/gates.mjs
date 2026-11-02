@@ -458,22 +458,18 @@ function installable(ctx) {
 }
 
 /**
- * The cure for the ONE class of red-check failure this group cannot plant and
- * cannot fix: the artefact readers in `tools/gates/lib/` have not learned the
- * jest shape, so `crash-red (weaker)` is not reachable at all. Both halves were
- * measured 2026-11-02 and both are also written in red-check.mjs's own header
- * (:110-130), so this constant repeats a diagnosis rather than inventing one.
+ * EMPTY, and kept rather than deleted. It carried the diagnosis of a real defect — the artefact
+ * readers in `tools/gates/lib/` had not learned the jest shape, so `crash-red (weaker)` was not
+ * reachable at all — and it was appended to every assertion that depended on it. Both halves were
+ * cured the same day (`splitFailureBody` in junit-xml.mjs for the failure text, `collectionReason`
+ * in jest-json.mjs for the file that never loaded), and the assertions below now hold on their own:
+ * seven crash-red verdicts were read from a real artefact on 2026-11-02.
  *
- * It is appended to the assertions that depend on it, so a probe that fires says
- * where the fix goes instead of leaving a reader to guess. This group owns
- * neither file.
+ * It stays as an empty string so the call sites keep their shape and the next diagnosis of this kind
+ * has somewhere to go. A constant still describing a fixed defect would be worse than none: a probe
+ * that fires would print a cure for something nobody can find.
  */
-const READER_SHAPE_CURE =
-  ' CURE, in two files this group may not edit: (1) tools/gates/lib/junit-xml.mjs — jest-junit writes <failure> with NO message= and NO type= attribute ' +
-  "(the type and message are the body's first line), parseJUnit fills both with '' (:134-135), and redReason's `failure?.message ?? failure?.body` (:300) " +
-  "never reaches the body because '' is not nullish, so EVERY failure answers `unknown` and the gate can name no red; " +
-  '(2) tools/gates/lib/junit-xml.mjs + tools/gates/lib/jest-json.mjs — a suite that failed to RUN emits no <testsuite> and no <testcase> at all, so the XML reads ' +
-  'tests="0" and the only channel that can name the file is the JSON (numRuntimeErrorTestSuites, testResults[].assertionResults === [] + a message).';
+const READER_SHAPE_CURE = '';
 
 /** The sentence red-check prints when the install itself refused — never a verdict about a test. */
 const INSTALL_REFUSED = /the base worktree is not installed|pnpm install --frozen-lockfile exited|pnpm could not be spawned/;
@@ -600,6 +596,80 @@ export const probes = [
       assertOut(planted.res, /"S1_names_itself > S1: the core package names itself"/, 'the green CASE must be named, not only its file');
       assertOut(planted.res, /✓ red on base: packages\/core\/test\/CHQ-001\/S2_due-window\.test\.ts/, `the honest assertion failure in the same run must read red on base.${READER_SHAPE_CURE}`);
       assertOut(planted.res, /every case failed on an assertion/, 'an assertion failure is the strong red, and the gate says which kind it read');
+    } finally {
+      dropCi(planted.ciRoot);
+      planted.r.cleanup();
+    }
+    return null;
+  }),
+
+  probe('red-check: ONE RANGE, ONE VERDICT — the same commit pair reads the same way after the implementation lands', (ctx) => {
+    // THE DEFECT THIS PROBE EXISTS FOR, measured on CHQ-001 on 2026-11-02 and the worst of the
+    // seven found that day. `everWritten` asked `git grep` at [mergeBase, 'HEAD'] — "did this name
+    // EVER exist" — so once the implementation existed at HEAD, the regression arm fired on the
+    // very symbol the test was waiting for. The same commit pair read
+    //
+    //   all 7 added test file(s) individually red on the base ✓        (before the implementation)
+    //   CANNOT VERIFY: 1 diagnostic(s) name something that was already written   (twenty minutes later)
+    //
+    // with not one byte of either commit changed. That is not a gate refusing a legal state, which
+    // the day's other defects were; it makes the VERDICT OF RECORD unreproducible, and a record
+    // nobody can re-derive is not a record. The base alone answers "was this red a regression".
+    const absent = installable(ctx);
+    if (absent !== null) return skipped(absent);
+    const r = skeleton('rc-reproducible', { commit: false });
+    r.write(SPEC_PATH, spec());
+    r.commit('chore: scaffold and the spec');
+    const base = r.head();
+    r.write(`${CASE_DIR}/S4_missing-name.test.ts`, MISSING_NAME_CASE);
+    r.commit('test: a case naming a symbol nobody has written');
+    const ciRoot = `${r.dir}-ci`;
+    const run = () => runGate('tools/gates/red-check.mjs', ['--since', String(base)], { cwd: r.dir, env: { CHEQ_CI_ROOT: ciRoot } });
+
+    try {
+      const before = run();
+      assertNotOut(before, INSTALL_REFUSED, 'red-check before the implementation: the base worktree must install first');
+      assertOut(before, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S4_missing-name\.test\.ts/, 'the planted case must read crash-red while the symbol is absent');
+      assertStatus(before, 0, 'one crash-red file and nothing else');
+
+      // The implementation lands — INSIDE the range the second run is asked about.
+      r.write('packages/core/src/due-window.ts', 'export const dueWindow = (n: number): number => n;\n');
+      r.write('packages/core/src/index.ts', "export const CORE_PACKAGE = '@cheq/core' as const;\nexport { dueWindow } from './due-window.ts';\n");
+      r.commit('feat: the symbol the case was waiting for');
+
+      const after = run();
+      assertNotOut(after, INSTALL_REFUSED, 'red-check after the implementation: the base worktree must install first');
+      assertNotOut(
+        after,
+        /name something that was already written/,
+        'the regression arm must NOT fire on a symbol that arrived INSIDE the range — that is the implementation phase working, and firing on it made this gate answer differently depending on when it ran',
+      );
+      assertOut(after, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S4_missing-name\.test\.ts/, 'the SAME range must give the SAME verdict: the test was red on the base, and the base has not changed');
+      assertStatus(after, 0, 'the same range, the same exit status');
+    } finally {
+      dropCi(ciRoot);
+      r.cleanup();
+    }
+    return null;
+  }),
+
+  probe('red-check: a name that existed AT THE BASE is still a regression, not a pending implementation', (ctx) => {
+    // The other side of the same arm, so the fix above cannot be mistaken for switching the
+    // regression check off. A symbol present in the base tree whose test is red there has not
+    // "not been written yet" — something broke — and the verdict must drop to CANNOT VERIFY.
+    const absent = installable(ctx);
+    if (absent !== null) return skipped(absent);
+    const planted = redCheck('rc-regression', {
+      baseFiles: {
+        'packages/core/src/due-window.ts': 'export const dueWindow = (n: number): number => n;\n',
+        'packages/core/src/index.ts': "export const CORE_PACKAGE = '@cheq/core' as const;\nexport { dueWindow } from './due-window.ts';\n",
+      },
+      branchFiles: { [`${CASE_DIR}/S4_missing-name.test.ts`]: MISSING_NAME_CASE },
+    });
+    try {
+      assertNotOut(planted.res, INSTALL_REFUSED, 'red-check over a regression: the base worktree must install first');
+      assertOut(planted.res, /name something that was already written|EXISTS under packages/, 'a name present in the BASE tree makes the red a regression, and the gate must say so');
+      assertStatus(planted.res, 1, 'a regression blocks: CANNOT VERIFY is not a proof that the test can fail');
     } finally {
       dropCi(planted.ciRoot);
       planted.r.cleanup();
