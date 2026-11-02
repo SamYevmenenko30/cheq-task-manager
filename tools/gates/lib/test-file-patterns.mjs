@@ -13,7 +13,7 @@
 //   support     <test dir>/**/{Support,Fixtures,support,fixtures}/*.ts(x)
 //   skeleton    <test dir>/skeleton/<name>.test.ts(x)   — guarded: NEVER red-checked, never a
 //               spec's check:, because it has no spec to be red against
-//   test config vitest.config.ts · playwright.config.ts · apps/web/test/setup.ts ·
+//   test config jest.config.mjs · playwright.config.ts · apps/web/test/setup.ts ·
 //               **/vite.config.ts · **/tsconfig*.json — guarded, because narrowing an `include`
 //               throws tests out of the run without touching a single test file
 //   contract    packages/core/src/contracts/CHQ-<nnn>/*.ts — only when a spec says
@@ -24,11 +24,13 @@
 // a file nobody is judging.
 //
 // The accepted EXTENSIONS per kind are not a style preference, they are the collectors:
-//   core / core-dom  include: ['test/**/*.test.ts']        vitest.config.ts:23, vitest.config.ts:34
-//   api              include: ['test/**/*.test.ts']        vitest.config.ts:42
-//   web              include: ['test/**/*.test.{ts,tsx}']  vitest.config.ts:51
+//   core / core-dom  testMatch: ['test/**/*.test.ts']       jest.config.mjs:90, jest.config.mjs:97
+//   api              testMatch: ['test/**/*.test.ts']       jest.config.mjs:104
+//   web              testMatch: ['test/**/*.test.{ts,tsx}']  jest.config.mjs:111
+// (the config writes each pattern with a leading `<rootDir>/`, resolved against that project's own
+//  rootDir, so the forms above are those patterns with the token removed)
 //   e2e              testDir: './e2e'                      playwright.config.ts:10
-// So `.tsx` under packages/core/test is NOT collected by Vitest, and this module says
+// So `.tsx` under packages/core/test is NOT collected by the runner, and this module says
 // unclassified-test for it rather than pretending the runner would see it. Conversely web
 // accepts BOTH extensions, because refusing `.test.ts` there would leave a file that RUNS and
 // nothing classifies.
@@ -38,7 +40,7 @@
 // e2e cases are `.spec.ts`. UNVERIFIED: the default testMatch pattern is read from Playwright's
 // documentation, not measured here; playwright.config.ts declares no testMatch of its own.
 
-/** The four spec kinds. A kind is also the Vitest project name for core/api/web. */
+/** The four spec kinds. A kind is also the jest project name for core/api/web. */
 export const KINDS = ['core', 'api', 'web', 'e2e'];
 
 /** Closed vocabulary of `classify().form`. Nothing outside this list is ever returned. */
@@ -97,7 +99,7 @@ export const SUPPORT_DIRS = new Set(['Support', 'Fixtures', 'support', 'fixtures
 
 /** Test configuration files: guarded by exact path. */
 export const TEST_CONFIG_FILES = new Set([
-  'vitest.config.ts',
+  'jest.config.mjs',
   'playwright.config.ts',
   'apps/web/test/setup.ts',
 ]);
@@ -149,7 +151,7 @@ function blank(path, form, extra = {}) {
 /**
  * Which kind a path belongs to, by its position in the tree — for ANY path, source files
  * included. `null` when the path is in no kind's root (tools/, docs/, the repo root, another
- * package). Never returns 'core-dom': that is a Vitest project, not a kind (see test-project.mjs).
+ * package). Never returns 'core-dom': that is a jest project, not a kind (see test-project.mjs).
  *
  * @param {string} input repo-relative path
  * @returns {'core'|'api'|'web'|'e2e'|null}
@@ -197,9 +199,13 @@ function classifyTestConfig(path) {
   if (TEST_CONFIG_FILES.has(path)) return true;
   const file = path.slice(path.lastIndexOf('/') + 1);
   if (TSCONFIG_RE.test(file)) return true;
-  // UNVERIFIED: whether Vitest loads a project-root vite.config.ts for a `projects` entry whose
-  // root is that package was NOT measured here. It is guarded in the safe direction — a change
-  // to it must be declared — rather than assumed inert.
+  // A vite config is still guarded, although the question that made it uncertain is now retired:
+  // the previous runner MIGHT have loaded a project-root vite.config.ts for a `projects` entry
+  // rooted at that package, and that was never measured. This runner declares all four projects
+  // inline in jest.config.mjs with an explicit `rootDir` each and reads no per-package config, so
+  // a vite config cannot reach a test run here. It stays guarded anyway: `apps/web` is a Vite app,
+  // so such a file would govern the BUILD its tests render against, and a change to it must be
+  // declared rather than assumed inert.
   if (VITE_CONFIG_RE.test(file)) return true;
   return false;
 }
@@ -273,7 +279,7 @@ export function classify(input) {
       return blank(path, 'unclassified-test', {
         kind,
         reason:
-          `no runner project covers ${foreign[1]}/test — add a Vitest project (vitest.config.ts) ` +
+          `no runner project covers ${foreign[1]}/test — add a project to jest.config.mjs ` +
           'and a row to TEST_DIR, or move the file under an existing kind',
       });
     }
@@ -389,8 +395,17 @@ export function isSpecTest(input) {
   return f === 'spec-test' || f === 'e2e-test';
 }
 
-/** A Vitest spec test (core/api/web) — e2e is Playwright and excluded. */
-export function isVitestSpecTest(input) {
+/**
+ * A spec test judged by the TEST RUNNER (core/api/web) — e2e is Playwright and excluded. The
+ * complement of `isE2eFile`; `isSpecTest` above is the union of the two. The runner's own name is
+ * deliberately not in this identifier: the distinction it draws is "which tool judges this file",
+ * and that outlives any one runner.
+ *
+ * Neither this predicate nor `isE2eFile` has a caller today. They are kept because the trio is the
+ * readable way to ask the question, and a gate that needs the narrow form should not re-derive it
+ * from `classify` — that is how two answers to one question start.
+ */
+export function isRunnerSpecTest(input) {
   return classify(input).form === 'spec-test';
 }
 

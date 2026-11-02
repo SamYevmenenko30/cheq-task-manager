@@ -647,7 +647,7 @@ function runGate(ctx, { id, argv, optional = false, summaryLabel = null, summary
   } else if (recordLabel !== null) {
     // A RUN of record is not a gate: it writes `run.json`, where its verdict was
     // put by the reader of its own artifacts — `tools/gates/run.mjs` reads the
-    // JUnit XML, the vitest JSON and the tsc log and records `verdict` plus one
+    // JUnit XML, the jest JSON and the tsc log and records `verdict` plus one
     // `steps[].verdict` per half. That file, not the exit status, is the verdict
     // of record for these lanes (rule 3, and tools/gates/run.mjs:236-238 says the
     // same); the status is read as well, and still fail-closed.

@@ -88,7 +88,7 @@
  * overlooked. L-testshape is a `--fast` light (`../lib/spec-parse.mjs`
  * STANDING_LIGHTS), i.e. the pre-commit path, which runs no test and has no
  * artifact of its own; a shape light that blocked every commit until somebody
- * had run vitest would be switched off within a day, and switching it off costs
+ * had run the test suite would be switched off within a day, and switching it off costs
  * levels 1-3 as well. The question level 4 asks — did this run execute every
  * case the source declares — has an owner that is NOT optional:
  * `artifactVerdict` in `../lib/test-project.mjs` and `fileVerdict` in
@@ -126,14 +126,14 @@ export const severity = 'hard';
 export const MAX_CASES_PER_SPEC_FILE = 7;
 
 /**
- * Where level 4 looks, per Vitest project. EXPLICIT paths: no glob, no mtime
+ * Where level 4 looks, per Jest project. EXPLICIT paths: no glob, no mtime
  * sort, no `latest` symlink (`../lib/run-dir.mjs` header, refusal 2). These are
- * the paths the measured lane writes (`vitest run --project <p>
+ * the paths the measured lane writes (`jest --selectProjects <p>
  * --reporter=junit --outputFile.junit=.ci/tests/<p>.junit.xml`), and `.ci/` is
  * gitignored machine state, so reading one is never reading the repository.
  */
 export const ARTIFACT_OF_PROJECT = Object.freeze(
-  Object.fromEntries(PROJECT_NAMES.filter((p) => PROJECTS[p].runner === 'vitest').map((p) => [p, `.ci/tests/${p}.junit.xml`])),
+  Object.fromEntries(PROJECT_NAMES.filter((p) => PROJECTS[p].runner === 'jest').map((p) => [p, `.ci/tests/${p}.junit.xml`])),
 );
 
 /** A snapshot file: a test by content, a companion file by shape. The same
@@ -146,11 +146,23 @@ const CASE_TITLE_RE = /^S([1-9]\d*)_/;
 /** The declared call heads. An identifier bound to one of them makes every case
  * called through it invisible to the enumerator — the undercount
  * `../lib/test-cases.mjs` names as this light's job (test-cases.mjs:66). */
-const ALIAS_RE = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(describe|suite|it|test|bench)\s*(?:[;,)\]}]|$)/gm;
+const ALIAS_RE =
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(xdescribe|fdescribe|describe|suite|xtest|test|xit|fit|it|bench)\s*(?:[;,)\]}]|$)/gm;
 
 /** Snapshot matchers: the assertion lives in a file nobody reviewed, and
- * `vitest -u` rewrites it in bulk. Forbidden in a spec test. */
-const SNAPSHOT_MATCHER_RE = /\.(toMatchSnapshot|toMatchInlineSnapshot|toMatchFileSnapshot)\s*\(/g;
+ * `jest -u` rewrites it in bulk. Forbidden in a spec test. */
+const SNAPSHOT_MATCHER_RE = /\.(toMatchSnapshot|toMatchInlineSnapshot)\s*\(/g;
+
+/**
+ * `.failing` INVERTS the verdict, and that is incompatible with a spec test.
+ *
+ * MEASURED 2026-11-02, jest 30: `it.failing('x', () => { expect(1).toBe(2); })` is reported with
+ * status `"passed"` — the runner is asserting that the body throws. A spec test written this way
+ * is therefore GREEN while its assertion fails, so red-check would see a passing case on the base
+ * and conclude the test does not prove anything. It is the one modifier that makes red and green
+ * swap places, so it is refused in a spec test rather than merely noted.
+ */
+const FAILING_MODIFIER_RE = /\b(?:x|f)?(?:it|test)\s*\.\s*(?:concurrent\s*\.\s*)?(failing)\b/g;
 
 /** Scanned in the RAW text, because these ARE comments — see trap 1. */
 const TS_DIRECTIVE_RE = /@ts-(expect-error|nocheck|ignore)\b/g;
@@ -203,7 +215,7 @@ export function run({ root = process.cwd() } = {}) {
       if (/\/CHQ-\d{3}\//.test(rel))
         problems.push(
           `${rel}: a snapshot under a CHQ-<nnn> spec directory — a spec test may not assert through a snapshot ` +
-            `(\`vitest -u\` rewrites the assertion in bulk); delete it and assert the value in the test${owner.specId ? ` (${owner.specId})` : ''}`,
+            `(\`jest -u\` rewrites the assertion in bulk); delete it and assert the value in the test${owner.specId ? ` (${owner.specId})` : ''}`,
         );
       continue;
     }
@@ -283,7 +295,7 @@ export function run({ root = process.cwd() } = {}) {
       if (m === null) {
         problems.push(
           `${info.path}:${c.line}: case title ${JSON.stringify(c.test)} does not begin "S<n>_" — the title is how an assertion is found in ` +
-            `the artifact and how \`vitest -t '^S<n>_'\` filters it`,
+            `the artifact and how a case is selected from it by exact name`,
         );
         continue;
       }
@@ -296,15 +308,22 @@ export function run({ root = process.cwd() } = {}) {
 
     for (const s of matchLines(masked, SNAPSHOT_MATCHER_RE))
       problems.push(
-        `${info.path}:${s.line}: \`${s.groups[0]}\` in a spec test — the assertion would live in a file nobody reviewed and \`vitest -u\` ` +
+        `${info.path}:${s.line}: \`${s.groups[0]}\` in a spec test — the assertion would live in a file nobody reviewed and \`jest -u\` ` +
           'rewrites it in bulk; assert the value here',
+      );
+
+    for (const f of matchLines(masked, FAILING_MODIFIER_RE))
+      problems.push(
+        `${info.path}:${f.line}: \`.failing\` in a spec test — the runner reports a case whose body THROWS as "passed" ` +
+          '(measured on jest 30), so this case is green exactly when its assertion fails and red-check cannot prove it red; ' +
+          'assert the failure with expect(...).toThrow() instead',
       );
 
     // RAW text on purpose: a `@ts-` directive is a comment, and `codeOnly`
     // masks comments — see trap 1 in the header.
     for (const d of matchLines(text, TS_DIRECTIVE_RE))
       problems.push(
-        `${info.path}:${d.line}: \`@ts-${d.groups[0]}\` in a spec test — a spec test is judged by tsc as well as by vitest, and a silenced ` +
+        `${info.path}:${d.line}: \`@ts-${d.groups[0]}\` in a spec test — a spec test is judged by tsc as well as by the runner, and a silenced ` +
           'type error is an assertion about nothing; fix the type or raise a spec-conflict',
       );
 

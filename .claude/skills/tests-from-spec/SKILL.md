@@ -37,10 +37,13 @@ stands.
   value the spec does not give, that is a spec question, not a fixture you invent.
 - **Test what the assertion says, not what is convenient.** "restored after save/load" is asserted
   after a real round-trip through the real serializer, never on the in-memory object. "after ten
-  steps" is ten calls of the stepping API. **NEVER** `await sleep()`; **NEVER**
-  `vi.advanceTimersByTime()` in place of a domain step (that is this stack's `Thread.Sleep`: it makes
-  "after ten steps" green without stepping the domain once, and fake timers LEAK into the next test
-  when `vi.useRealTimers()` is forgotten); **NEVER** `await waitFor()` for state that is synchronous.
+  steps" is ten calls of the stepping API. **NEVER** `await sleep()`; **NEVER** advance fake timers
+  in place of a domain step (that is this stack's `Thread.Sleep`: it makes "after ten steps" green
+  without stepping the domain once, and fake timers LEAK into the next test when the teardown that
+  restores the real ones is forgotten); **NEVER** `await waitFor()` for state that is synchronous.
+  The fake-timer API's exact spelling on this runner is UNVERIFIED here — it is not in the measured
+  fact sheet — so read it from the runner's own documentation before you write one, and do not copy
+  a namespace out of older prose.
 - Map coverage: the S-id is in the file name and in every case name, so the gap list is greppable —
   `ready.mjs` prints `S coverage: k/n` from exactly that grep.
 
@@ -48,9 +51,9 @@ stands.
 
 | kind | file | shape |
 |---|---|---|
-| `core` | `packages/core/test/CHQ-<nnn>/S<n>_<slug>.test.ts` | plain Vitest over pure values. No DOM, no `node:*`, no network, no clock: the package's own compiler forbids them (`packages/core/tsconfig.json:4-9` — `lib: ["ES2023"]`, `types: []`, so `document` is `TS2584` and `node:fs` is `TS2591`), and `dependencies: {}` with `node-linker=isolated` (`packages/core/package.json:7`, `.npmrc:4`) means an undeclared import does not resolve. Must end in `.test.ts` — the project's include is `test/**/*.test.ts` (`vitest.config.ts:23`), and the SAME files are also run under the jsdom project `core-dom` (`vitest.config.ts:28-35`), so a core test may not depend on which environment it is in |
-| `api` | `apps/api/test/CHQ-<nnn>/S<n>_<slug>.test.ts` | the app through Fastify's in-process injection (`fastify` is declared at `apps/api/package.json:9`; no app is built yet — `apps/api/src/index.ts:1-7` is a marker, and the injection method's exact signature is cited from Fastify's own docs at first use, UNVERIFIED here until then). Asserted on status, headers and body. No listening port and no `fetch` at a dev server: that is an advisory read of a process nothing pinned (`vitest.config.ts:39-42`) |
-| `web` | `apps/web/test/CHQ-<nnn>/S<n>_<slug>.test.tsx` | Testing Library over a rendered component; queries by role and label, not by class name. `apps/web/test/setup.ts` is loaded by the project (`vitest.config.ts:50`) and carries the `afterEach` cleanup — without it a second `render()` in one file leaves the first mounted and a single-match query finds two |
+| `core` | `packages/core/test/CHQ-<nnn>/S<n>_<slug>.test.ts` | plain test cases over pure values, importing `describe`/`it`/`expect` from `@jest/globals` (never from the runner's bare name). No DOM, no `node:*`, no network, no clock: the package's own compiler forbids them (`packages/core/tsconfig.json:4-9` — `lib: ["ES2023"]`, `types: []`, so `document` is `TS2584` and `node:fs` is `TS2591`), and `dependencies: {}` with `node-linker=isolated` (`packages/core/package.json:7`, `.npmrc:4`) means an undeclared import does not resolve. Must end in `.test.ts` — the project's `testMatch` is `<rootDir>/test/**/*.test.ts` over `rootDir: ./packages/core` (`jest.config.mjs:89-90`), and the SAME files are also run under the jsdom project `core-dom` (`jest.config.mjs:94-97`), so a core test may not depend on which environment it is in |
+| `api` | `apps/api/test/CHQ-<nnn>/S<n>_<slug>.test.ts` | the app through Fastify's in-process injection (`fastify` is declared at `apps/api/package.json:9`; no app is built yet — `apps/api/src/index.ts:1-7` is a marker, and the injection method's exact signature is cited from Fastify's own docs at first use, UNVERIFIED here until then). Asserted on status, headers and body. No listening port and no `fetch` at a dev server: that is an advisory read of a process nothing pinned (`jest.config.mjs:101-104`) |
+| `web` | `apps/web/test/CHQ-<nnn>/S<n>_<slug>.test.tsx` | Testing Library over a rendered component; queries by role and label, not by class name. `apps/web/test/setup.ts` is loaded by the project through `setupFilesAfterEnv` (`jest.config.mjs:112`) and carries the `afterEach` cleanup plus the matchers from `@testing-library/jest-dom`; without it a second `render()` in one file leaves the first mounted and a single-match query finds two |
 | `e2e` | `e2e/CHQ-<nnn>/S<n>_<slug>.spec.ts` | ONLY when `node tools/gates/status.mjs` in THIS session prints `BROWSER_PROBE=pass`. It does not today: the browsers are not installed (`playwright.config.ts:3-5`), so an `e2e` S gets **no test at all** and the handover says so. Never judged from the S's `verify:`, which names the runner only |
 
 **Naming contract** — it is what makes the enumerator exact and the filters honest:
@@ -63,24 +66,39 @@ stands.
 - ≤ 7 cases per file;
 - `test.each([...])` with a LITERAL table is fine and is counted; a table built from a variable or
   in a loop makes the count non-derivable — the artifact is then accepted as `>= 1` and the note is
-  PRINTED, so prefer the literal table.
+  PRINTED, so prefer the literal table. A `.each` ROW NAME cannot be derived from the source at all:
+  the runner formats `%i`, `%s`, `%p` from the row and `$prop` from an object row (measured), so the
+  row's name in the artifact is the runner's, not yours.
+- the heads the runner defines are `describe`, `fdescribe`, `xdescribe`, `it`, `test`, `fit`, `xit`,
+  `xtest`, and the focus and skip spellings are HEADS, not modifiers
+  (`node_modules/.pnpm/@jest+globals@30.5.2/node_modules/@jest/globals/build/index.d.ts:11-24` —
+  the resolved path, not the symlink, as `docs/vendor/README.md` requires). `suite(` and `bench(` are NOT defined here, so a
+  file using one fails to COLLECT — and a collection failure has no XML row at all (ts-loop, HOW TO
+  READ), which is the hardest red to read.
 
-Two measured consequences of that contract. The JUnit `name` is `"<describe> > <test>"` (m,
-2026-11-01), so the enumerator's key is `<file>::<innermost describe>::<case name>` and renaming the
-OUTER describe does not make every case look new. And `-t` is a substring match on that joined
-string: `-t '^S1_'` matches NOTHING when the case sits inside a describe, so the file path is the
-filter and the artifact is the selector (ts-loop, row 4). A second top-level `describe` is banned by
-`L-testshape`; the only thing that would catch one is the case-count check — the exact failure it
-produces at runtime is UNVERIFIED here, which is reason enough not to write one.
+Two consequences of that contract. The JUnit `name` is `"<describe> > <test>"`, so the enumerator's
+key is `<file>::<innermost describe>::<case name>` and renaming the OUTER describe does not make
+every case look new. And `-t` is an unanchored substring match over the full case name, which begins
+with the describe titles: `-t '^S1_'` matches NOTHING when the case sits inside a describe, so the
+file path is the filter and the artifact is the selector (ts-loop, row 4). A second top-level
+`describe` is banned by `L-testshape`; the only thing that would catch one is the case-count check —
+the exact failure it produces at runtime is UNVERIFIED here, which is reason enough not to write one.
 
 ## The portable subset (`L-testshape`, plus `L-core-purity` for the clock, plus lint)
 
 Forbidden in a spec test, because each one erases a distinction the gates are built on:
 
+- **`it.failing` / `test.failing` — refused by `L-testshape`, and it is the worst one on this list.**
+  The modifier INVERTS the verdict: measured 2026-11-02,
+  `it.failing('x', () => { expect(1).toBe(2); })` is reported `"passed"`
+  (`tools/gates/lights/testshape.mjs:157-165`). A spec test written that way is green exactly when
+  its assertion fails, so red-check could never prove it red and the whole phase would mean nothing.
 - `toMatchSnapshot` / `toMatchInlineSnapshot` — a missing snapshot is WRITTEN on the first run and
-  green forever after; `-u` rebases the assertion onto current behaviour without a diff anyone reads.
+  green forever after (measured without `--ci`: "1 snapshot written", exit 0); `-u` rebases the
+  assertion onto current behaviour without a diff anyone reads.
 - `it.only` / `describe.only` — they disable every other case in the file without changing a line in
-  it. `it.skip` / `it.todo` in a commit.
+  it. `it.skip` / `it.todo` in a commit (`test.todo` emits a record with status `"todo"`, which is
+  not a verdict).
 - `@ts-expect-error`, `@ts-nocheck`, `as any` — they silence exactly the diagnostics red-check
   classifies by. (`typescript/ban-ts-comment` parses in `.oxlintrc.jsonc` but did not fire on
   `// @ts-expect-error nope` (m, 2026-11-01), so this ban is a token scan, not a lint rule.)
@@ -88,11 +106,12 @@ Forbidden in a spec test, because each one erases a distinction the gates are bu
   dice in a test is a test that is green in one timezone and red in another. `new Date(<literal>)`
   is fine, `instanceof Date` is fine, other `Math` members are fine. Inside `packages/core/**`,
   tests included, this one is `L-core-purity`'s token scan rather than `L-testshape`'s, and it is
-  not a lint rule at all. `vi.useFakeTimers()` without both `vi.setSystemTime(<fixed>)` and
-  `vi.useRealTimers()` in teardown.
+  not a lint rule at all. Fake timers without BOTH a fixed system time and a teardown that restores
+  the real ones.
 - `Intl`, `toLocaleString`, `toLocaleDateString` in an assertion; a float's `toString()` in an
   assertion (use `toBeCloseTo`); `structuredClone`; `process.env`; `node:*`.
-- `test.concurrent` over shared state; `--retry` above 0.
+- `test.concurrent` over shared state. (There is no `--retry` to turn down on this runner — nothing
+  retries unless a test asks, so a retry in a spec test is something you WROTE.)
 - `expect.objectContaining` / `expect.any` as the ONLY assertion about a shape; an `await` with no
   assertion after it (a dangling promise passes).
 - Required in every `async` case: `expect.hasAssertions()`. A test with no assertion passes, and an
@@ -134,30 +153,37 @@ the declarations for it.
    file holding ONLY the anti-regression half is green on the base and fails the gate. Put an
    assertion in the file whose subject it shares, even when the AC map lists another home.
 
-   **Prefer assertion-red.** Build the Given through what already exists so the case fails on an
-   `expect`, not on a missing import. The three reasons a case is red are distinguishable in the
-   JUnit XML, and only the first is proof (ADR-0005; m, 2026-11-01, planted in one run):
+   **Prefer assertion-red**, and on this runner that preference has teeth: an unwritten MODULE
+   produces no `<testsuite>` and no `<testcase>` in the XML at all — it is counted only in the JSON
+   channel, so `crossCheck`'s arithmetic does not close and red-check answers CANNOT VERIFY rather
+   than crash-red (`tools/gates/red-check.mjs:121-129`). A test that fails on a missing import is
+   therefore not a weaker proof here; it is NO proof. Build the Given through what already exists so
+   the case fails on an `expect`.
 
-   | why it is red | `<failure type>` | message | `testcase name` | verdict |
-   |---|---|---|---|---|
-   | honest assertion | `AssertionError` | `expected 'x' to be 'y' // Object.is equality` | the case's own name | **assertion-red** |
-   | the symbol is not written yet | `TypeError` | `<name> is not a function` | the case's own name | crash-red (weaker, PENDING IMPLEMENTATION) |
-   | the module is not written yet | `Error` | `Cannot find module '…' imported from …` | **the file path** — collection never reached the case | crash-red (weaker, PENDING IMPLEMENTATION) |
+   | why it is red | where it shows | signature | verdict |
+   |---|---|---|---|
+   | honest assertion | `<failure type>` in the XML | an assertion type, the case's own `name` | **assertion-red** |
+   | the symbol is not written yet | `<failure type>` in the XML | `TypeError: <name> is not a function` · `ReferenceError: <name> is not defined`, the case's own `name` | crash-red (weaker, PENDING IMPLEMENTATION) |
+   | the module is not written yet | the JSON only — NO XML row | `Error: Cannot find module …` / `Test suite failed to run` | CANNOT VERIFY today (`red-check.mjs:121-129`) |
 
-   Anything else is CANNOT VERIFY and is NEVER red: a `tests="0"` artifact, a suite whose `skipped`
-   equals its `tests` (the missed-filter shape — exit 0 and a clean report, measured), a missing
-   artifact, counters that disagree between the XML and the JSON beyond the one collection-failure
-   offset ts-loop measures, a `TS2307` naming a workspace
-   package like `@cheq/core` rather than a path inside it (that means the base worktree was never
-   installed, and every test there would be red for a reason that has nothing to do with the test).
+   Anything else is CANNOT VERIFY and is NEVER red: a `tests="0"` artifact (what a positional path
+   pattern matching no file writes), a suite whose `skipped` equals its `tests`, a JSON report whose
+   `passed + failed` is zero (what a `-t` matching no case writes — exit 0, `success: true`,
+   measured), a missing artifact, counters that disagree between the XML and the JSON, a `TS2307`
+   naming a workspace package like `@cheq/core` rather than a path inside it (that means the base
+   worktree was never installed, and every test there would be red for a reason that has nothing to
+   do with the test).
 
    **Contracts opt-in** (front-matter `contracts: allowed`, core only): you may add
    `packages/core/src/contracts/CHQ-<nnn>/*.ts` holding types, interfaces and enums ONLY — no
    function bodies, no factories, no initialised values. red-check stages them onto the base and
    prints the staged list in every verdict; a contracts file never lifts a verdict past crash-red.
    Their purity is reviewed by the human, so say in the commit body that they exist.
-3. **Prove they are red.** First run them yourself — `pnpm exec vitest run --project <kind> <file>`
-   — and read the failure of every new case. Then
+3. **Prove they are red.** First run them yourself —
+   `NODE_OPTIONS=--experimental-vm-modules pnpm exec jest --selectProjects <kind> <file>`, the file
+   path repo-relative and positional — and read the failure of every new case. Without
+   `NODE_OPTIONS` every case dies with "Cannot use import statement outside a module", which reads
+   like a broken test and is not one. Then
    `node tools/gates/red-check.mjs [--base main | --since <sha>] [--spec CHQ-<nnn>]`
    (`pnpm red-check`, `package.json:12`). What it proves, and why both halves matter:
    - **every ADDED test file individually**, staged alone onto a worktree reset to the merge-base

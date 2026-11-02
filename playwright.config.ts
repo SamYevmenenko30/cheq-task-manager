@@ -20,7 +20,7 @@ export default defineConfig({
   // junit only. The wrapper redirects exactly one reporter per run
   // (PLAYWRIGHT_JUNIT_OUTPUT_NAME, tools/gates/run.mjs), so a `json` entry here
   // would promise a second channel nobody routes into the run directory — and
-  // the vitest lanes' cross-check between two channels has no counterpart here.
+  // the jest lanes' cross-check between two channels has no counterpart here.
   // That asymmetry is a limit of the browser lane, not something to paper over
   // with a reporter writing to a path no gate reads.
   reporter: [['junit']],

@@ -22,7 +22,13 @@ vite.config.ts.timestamp-*
 .DS_Store
 .idea/
 .vscode/
-.vitest/
 
 # playwright storage state
 /e2e/.auth/
+
+# jest-junit's DEFAULT output path. Every run of record steers the JUnit artefact into its own
+# directory with JEST_JUNIT_OUTPUT_FILE (tools/gates/run.mjs); a hand-run without that variable
+# writes this file into the cwd instead — measured 2026-11-02, and it is the "one file every run
+# overwrites" defect jest.config.mjs's header names. Ignored so it can never be committed by
+# accident; it is a byproduct, never an artefact any gate reads.
+junit.xml

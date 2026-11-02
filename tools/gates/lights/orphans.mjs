@@ -4,7 +4,7 @@
  *
  * Zero dependencies, Node 22 ESM. Nothing here parses TypeScript: the reach of
  * the compiler is asked of the compiler (`resolveClosure` → `tsc --listFiles`),
- * the reach of the runner is asked of the runner (`vitest list --json`), and the
+ * the reach of the runner is asked of the runner (`jest --listTests --json`), and the
  * only thing read out of a source file is a MODULE SPECIFIER, taken from the
  * literal table `scanSource` already builds (`../lib/test-cases.mjs`) rather
  * than from a second scanner of this module's own.
@@ -43,7 +43,7 @@
  *    the production side of the package.
  *
  * 2. ONE RUNNER PER TEST FILE — every `*.test.ts(x)` is collected by exactly one
- *    BAND of Vitest projects. Zero bands means a test file that never runs and
+ *    BAND of Jest projects. Zero bands means a test file that never runs and
  *    nothing says so; two bands mean one file judged twice with no declaration
  *    of which verdict is the record.
  *
@@ -58,7 +58,7 @@
  *    to the same files joins the band by itself and a project aimed at somebody
  *    else's files is caught the day it is written.
  *
- *    That table is a DECLARATION of what `vitest.config.ts` says
+ *    That table is a DECLARATION of what `jest.config.mjs` says
  *    (test-project.mjs:16-25 names this light as the one that compares them), so
  *    this clause also reads the config — see the next section — and, when the
  *    runner is installed, asks the runner itself which files it collects.
@@ -100,7 +100,7 @@
  * THE CONFIG IS SCANNED, NOT PARSED — AND A SCAN THAT READ NOTHING FAILS CLOSED
  * ──────────────────────────────────────────────────────────────────────────────
  *
- * `vitest.config.ts` is TypeScript, and a gate here does not parse the language
+ * `jest.config.mjs` is JavaScript, and a gate here does not parse the language
  * it judges. What it does instead: `scanSource` masks comments and hands back
  * every string literal with its offset, and each literal is attributed to the
  * key immediately before it (`name:`, `root:`, `environment:`, `include: [`).
@@ -119,11 +119,11 @@
  * THE RUNNER'S OWN ANSWER, AND THE MEASURED TRAP IN IT
  * ──────────────────────────────────────────────────────────────────────────────
  *
- * `vitest list --json --project <p>` exits 0 and prints one record per case with
+ * `jest --selectProjects <p> --listTests --json` exits 0 and prints the test FILES it
  * `projectName` and an ABSOLUTE `file` (measured 2026-11-01). That is the
  * runner's own collection, and it is a stronger answer about "which project
  * collects this file" than any matcher written here. It is therefore asked
- * whenever the `vitest` premise is present, and a disagreement with the matcher
+ * whenever the `jest` premise is present, and a disagreement with the matcher
  * is cannot-verify rather than a note: if the two disagree, the matcher's answer
  * for every OTHER file is of unknown worth as well.
  *
@@ -176,7 +176,7 @@ const SRC = 'src';
 const TESTING = 'src/testing';
 
 /** The config this light compares the project table against. */
-export const CONFIG_REL = 'vitest.config.ts';
+export const CONFIG_REL = 'jest.config.mjs';
 
 /** Extensions a module specifier may be resolved to, in probe order. `./App`
  * resolving to `App.tsx` is in this tree, so the bare form is not optional. */
@@ -192,9 +192,9 @@ const RESOLVE_SUFFIXES = Object.freeze(['', '.ts', '.tsx', '/index.ts', '/index.
  */
 const ENTRY_CANDIDATES = Object.freeze(['src/main.tsx', 'src/main.ts', 'src/index.tsx', 'src/index.ts']);
 
-/** Suffixes that make a file a Vitest-collected test by name alone, taken from
+/** Suffixes that make a file a runner-collected test by name alone, taken from
  * the project table so this light holds no second list. */
-const TEST_SUFFIXES = Object.freeze([...new Set(PROJECT_NAMES.flatMap((p) => (PROJECTS[p].runner === 'vitest' ? PROJECTS[p].extensions : [])))]);
+const TEST_SUFFIXES = Object.freeze([...new Set(PROJECT_NAMES.flatMap((p) => (PROJECTS[p].runner === 'jest' ? PROJECTS[p].extensions : [])))]);
 
 /** A source file a type project is expected to have read. */
 const SOURCE_SUFFIXES = Object.freeze(['.ts', '.tsx']);
@@ -331,6 +331,13 @@ const INCLUDE_BRACED_RE = /^([\w./-]+)\/\*\*\/\*\.([\w.]+)\.\{([\w,]+)\}$/;
  * outside the two forms measured in this config. Null is cannot-verify at the
  * call site: a pattern nobody parsed matches whatever it likes. */
 export function parseInclude(pattern) {
+  // Jest writes a project's `testMatch` against its own `rootDir` and spells that
+  // with a token: `<rootDir>/test/**/*.test.ts`. The previous runner's `include`
+  // was already relative to the project root and carried no token, so the two
+  // forms below never saw one — and every pattern read as unknown, which made the
+  // light report four test files across ZERO collection bands. Stripping the
+  // token is the whole difference; what follows it is the same shape.
+  pattern = String(pattern ?? '').replace(/^<rootDir>\//, '');
   const braced = INCLUDE_BRACED_RE.exec(pattern);
   if (braced) {
     const [, prefix, middle, list] = braced;
@@ -342,7 +349,7 @@ export function parseInclude(pattern) {
 }
 
 /**
- * The project blocks `vitest.config.ts` declares, read by attributing each
+ * The project blocks `jest.config.mjs` declares, read by attributing each
  * string literal to the key before it. → { ok, reason, blocks }
  *
  * `blocks` is `[{ name, root, environment, includes: [string], line }]`.
@@ -358,27 +365,27 @@ export function scanConfig(text) {
 
     // The key this literal belongs to: either immediately before it, or — for
     // the second and later element of an array — the key that opened the array.
-    const direct = /\b(name|root|environment|include|setupFiles)\s*:\s*(?:\[\s*)?$/.exec(before);
+    const direct = /\b(displayName|rootDir|testEnvironment|testMatch|setupFilesAfterEnv)\s*:\s*(?:\[\s*)?$/.exec(before);
     let which = null;
     if (direct !== null) which = direct[1];
-    else if (/\binclude\s*:\s*\[[^\]]*$/.test(before)) which = 'include';
-    else if (/\bsetupFiles\s*:\s*\[[^\]]*$/.test(before)) which = 'setupFiles';
+    else if (/\btestMatch\s*:\s*\[[^\]]*$/.test(before)) which = 'testMatch';
+    else if (/\bsetupFilesAfterEnv\s*:\s*\[[^\]]*$/.test(before)) which = 'setupFilesAfterEnv';
 
-    if (which === 'name') {
+    if (which === 'displayName') {
       current = { name: lit.value, root: null, environment: null, includes: [], line };
       blocks.push(current);
       continue;
     }
     if (current === null) continue;
-    if (which === 'root') current.root = lit.value;
-    else if (which === 'environment') current.environment = lit.value;
-    else if (which === 'include') current.includes.push(lit.value);
+    if (which === 'rootDir') current.root = lit.value;
+    else if (which === 'testEnvironment') current.environment = lit.value;
+    else if (which === 'testMatch') current.includes.push(lit.value);
   }
   if (blocks.length === 0)
     return {
       ok: false,
       reason:
-        `no \`name: '<project>'\` literal was read out of ${CONFIG_REL} — this is a token scan over masked source, not a parse, ` +
+        `no \`displayName: '<project>'\` literal was read out of ${CONFIG_REL} — this is a token scan over masked source, not a parse, ` +
         'so a config whose shape changed reads as empty rather than as agreeing with the project table; the cure is to add the new shape to scanConfig()',
       blocks,
     };
@@ -387,8 +394,8 @@ export function scanConfig(text) {
     return {
       ok: false,
       reason:
-        `${CONFIG_REL}: ${bad.map((b) => `block "${b.name}" (line ${b.line}) yielded ${['root', 'environment', 'include'].filter((k) => (k === 'include' ? b.includes.length === 0 : b[k] === null)).join(' and ')}`).join('; ')} — ` +
-        'the scan attributes a literal to the key before it and assumes `name:` opens a block; a block it cannot read whole is not a block it may compare',
+        `${CONFIG_REL}: ${bad.map((b) => `block "${b.name}" (line ${b.line}) yielded ${['rootDir', 'testEnvironment', 'testMatch'].filter((k) => (k === 'testMatch' ? b.includes.length === 0 : b[{ rootDir: 'root', testEnvironment: 'environment' }[k]] === null)).join(' and ')}`).join('; ')} — ` +
+        'the scan attributes a literal to the key before it and assumes `displayName:` opens a block; a block it cannot read whole is not a block it may compare',
       blocks,
     };
   return { ok: true, reason: null, blocks };
@@ -457,7 +464,7 @@ export function run({ root = process.cwd(), premises = null } = {}) {
     }
 
     const fromEntries = importGraph(root, entries, { cache: graphCache });
-    const testDirs = [...new Set(PROJECT_NAMES.filter((p) => PROJECTS[p].runner === 'vitest' && under(PROJECTS[p].dir, pkg.rel)).map((p) => PROJECTS[p].dir))];
+    const testDirs = [...new Set(PROJECT_NAMES.filter((p) => PROJECTS[p].runner === 'jest' && under(PROJECTS[p].dir, pkg.rel)).map((p) => PROJECTS[p].dir))];
     const testSeeds = files.filter((f) => testDirs.some((d) => under(f, d)) && SOURCE_SUFFIXES.some((e) => f.endsWith(e)));
     const fromTests = importGraph(root, testSeeds, { cache: graphCache });
 
@@ -522,7 +529,7 @@ export function run({ root = process.cwd(), premises = null } = {}) {
   const bands = new Map();
   for (const name of PROJECT_NAMES) {
     const cfg = PROJECTS[name];
-    if (cfg.runner !== 'vitest') continue;
+    if (cfg.runner !== 'jest') continue;
     const key = `${cfg.dir}|${[...cfg.extensions].toSorted(sortStr).join(',')}`;
     if (!bands.has(key)) bands.set(key, { key, dir: cfg.dir, extensions: cfg.extensions, projects: [] });
     bands.get(key).projects.push(name);
@@ -535,12 +542,12 @@ export function run({ root = process.cwd(), premises = null } = {}) {
     matchedBy.set(f, hits);
     if (hits.length === 0)
       problems.push(
-        `${f}:1: no Vitest project collects this file (bands: ${[...bands.values()].map((b) => `${b.dir}/**/*${b.extensions.join('|')}`).join(', ')}) — ` +
+        `${f}:1: no Jest project collects this file (bands: ${[...bands.values()].map((b) => `${b.dir}/**/*${b.extensions.join('|')}`).join(', ')}) — ` +
           'it never runs and no row says so; move it under the test directory of its kind or delete it',
       );
     else if (hits.length > 1)
       problems.push(
-        `${f}:1: ${hits.length} Vitest project bands collect this file (${hits.map((b) => b.projects.join('+')).join(' and ')}) — ` +
+        `${f}:1: ${hits.length} Jest project bands collect this file (${hits.map((b) => b.projects.join('+')).join(' and ')}) — ` +
           'two runs judge one file and nothing declares which verdict is the record; narrow one include',
       );
   }
@@ -563,7 +570,7 @@ export function run({ root = process.cwd(), premises = null } = {}) {
       if (!scanned.ok) {
         unreached.push(scanned.reason);
       } else {
-        const declared = new Set(PROJECT_NAMES.filter((p) => PROJECTS[p].runner === 'vitest'));
+        const declared = new Set(PROJECT_NAMES.filter((p) => PROJECTS[p].runner === 'jest'));
         const inConfig = new Set(scanned.blocks.map((b) => b.name));
         for (const name of inConfig)
           if (!declared.has(name))
@@ -611,15 +618,19 @@ export function run({ root = process.cwd(), premises = null } = {}) {
 
   // The runner's own collection, when it is installed. A disagreement is
   // cannot-verify: if the matcher is wrong here it is of unknown worth anywhere.
-  const vit = requirePremise(premises, 'vitest');
-  if (!vit.ok) {
-    unreached.push(`clause 2 corroboration not reached: ${vit.reason} — the matcher above is this light's own answer, uncorroborated by the runner`);
+  const runner = requirePremise(premises, 'jest');
+  if (!runner.ok) {
+    unreached.push(`clause 2 corroboration not reached: ${runner.reason} — the matcher above is this light's own answer, uncorroborated by the runner`);
   } else {
     for (const band of bands.values()) {
       const project = band.projects[0];
-      const r = sh(vit.premise.path, ['list', '--json', '--project', project], { cwd: root });
+      // MEASURED difference from the previous runner: `jest --listTests --json`
+      // prints an array of ABSOLUTE FILE PATHS, not one record per case. For this
+      // clause that is the better answer — the question is which project collects
+      // a FILE — but the parse below had to change with it.
+      const r = sh(runner.premise.path, ['--selectProjects', project, '--listTests', '--json'], { cwd: root });
       if (r.code === null) {
-        unreached.push(`could not run ${vit.premise.rel} list for project ${project}: ${r.spawnError ?? 'spawn failed'}`);
+        unreached.push(`could not run ${runner.premise.rel} --listTests for project ${project}: ${r.spawnError ?? 'spawn failed'}`);
         continue;
       }
       let listed;
@@ -627,18 +638,18 @@ export function run({ root = process.cwd(), premises = null } = {}) {
         listed = JSON.parse(r.stdout);
       } catch (e) {
         unreached.push(
-          `\`${vit.premise.rel} list --json --project ${project}\` exited ${r.code} and its stdout is not JSON (${String(e.message)}) — ` +
+          `\`${runner.premise.rel} --selectProjects ${project} --listTests --json\` exited ${r.code} and its stdout is not JSON (${String(e.message)}) — ` +
             'the runner\'s own collection went unread, so the matcher is uncorroborated',
         );
         continue;
       }
       if (!Array.isArray(listed)) {
-        unreached.push(`\`${vit.premise.rel} list --json --project ${project}\` printed ${typeof listed}, not an array of cases — the measured shape is an array of { name, file, projectName }`);
+        unreached.push(`\`${runner.premise.rel} --selectProjects ${project} --listTests --json\` printed ${typeof listed}, not an array — the measured shape is an array of absolute test-file paths`);
         continue;
       }
       // `file` is ABSOLUTE in this output; a comparison without this step
       // matches nothing (measured).
-      const byRunner = new Set(listed.map((c) => relPosix(root, String(c?.file ?? ''))).filter((f) => f !== ''));
+      const byRunner = new Set(listed.map((f) => relPosix(root, String(f ?? ''))).filter((f) => f !== ''));
       const byMatcher = new Set(testFiles.filter((f) => (matchedBy.get(f) ?? []).some((b) => b.key === band.key)));
       const onlyRunner = [...byRunner].filter((f) => !byMatcher.has(f)).toSorted(sortStr);
       const onlyMatcher = [...byMatcher].filter((f) => !byRunner.has(f)).toSorted(sortStr);
@@ -648,14 +659,14 @@ export function run({ root = process.cwd(), premises = null } = {}) {
       // is always the other way round and both directions are reported.
       if (onlyRunner.length > 0 || onlyMatcher.length > 0)
         unreached.push(
-          `the ${band.projects.join('+')} band disagrees with \`vitest list --json --project ${project}\`: ` +
+          `the ${band.projects.join('+')} band disagrees with \`jest --selectProjects ${project} --listTests\`: ` +
             [
               ...(onlyRunner.length > 0 ? [`the runner collects ${onlyRunner.join(', ')} and the matcher does not`] : []),
               ...(onlyMatcher.length > 0 ? [`the matcher claims ${onlyMatcher.join(', ')} and the runner does not collect it`] : []),
             ].join('; ') +
             ' — the runner is the authority on what it runs, so every verdict this clause gave is of unknown worth',
         );
-      else notes.push(`${band.projects.join('+')}: ${byRunner.size} file(s), and \`vitest list --json\` collects exactly those`);
+      else notes.push(`${band.projects.join('+')}: ${byRunner.size} file(s), and \`jest --listTests --json\` collects exactly those`);
     }
   }
 

@@ -1,10 +1,15 @@
 // Enumerating test cases WITHOUT running anything, from the text of the file.
 //
-// Why not `vitest list`: collection is an import. On the base revision the implementation does
-// not exist yet, the import throws `Cannot find module …` and the listing is empty — measured
-// (measured-toolchain.md:111). An enumerator that returns zero on the base turns "a test was
-// added" into "there is nothing to make red" and greens the gate it was supposed to block.
-// `vitest list` is advisory cross-checking on HEAD only, never a verdict, never on the base.
+// Why not the runner's own collection: collection is an import. On the base revision the
+// implementation does not exist yet, the import throws `Cannot find module …` and the listing is
+// empty — measured. An enumerator that returns zero on the base turns "a test was added" into
+// "there is nothing to make red" and greens the gate it was supposed to block.
+//
+// And this runner gives less to cross-check with than the previous one did: `jest --listTests
+// --json` prints an array of absolute FILE paths, not one record per case (measured 2026-11-02),
+// and there is no `jest list` subcommand at all. So the runner can corroborate WHICH FILES were
+// collected — which is what L-orphans asks of it — and nothing on its command line enumerates case
+// NAMES. This module is the only enumerator of cases, on HEAD and on the base alike.
 //
 // Why not the TypeScript compiler API: a gate never parses the language it judges (rule 2). This
 // module is a token scan — comments, string literals, regex literals and `${…}` substitutions are
@@ -12,7 +17,7 @@
 //
 // ── What the names mean, measured 2026-11-01 ────────────────────────────────────────────────
 // Repeat with:
-//   pnpm exec vitest run --project core --reporter=junit --outputFile=<somewhere>/core.junit.xml
+//   JEST_JUNIT_OUTPUT_FILE=<somewhere>/core.junit.xml pnpm exec jest --selectProjects core --ci
 //
 // The JUnit reporter writes `<testcase classname="<repo-relative file>" name="<suites> > <test>">`.
 // Written as "source shape → artifact", with the call heads spelled out rather than written as
@@ -29,8 +34,9 @@
 //       `tests=` and must be counted in `expected`
 //   the .each modifier over the literal table [[1, 2], [3, 4]] with the name "adds %i and %i"
 //     → TWO testcases, names "outer > adds 1 and 2" and "outer > adds 3 and 4": the placeholders
-//       are FORMATTED per row. Reproducing that means reimplementing Vitest's formatter, so every
-//       `.each`/`.for` case is `unresolved` here — honestly unknown, never counted.
+//       are FORMATTED per row (measured 2026-11-02: '%i', '%s' and '%p' from the row, '$prop' from
+//       an object row). Reproducing that means reimplementing the runner's formatter, so every
+//       `.each` case is `unresolved` here — honestly unknown, never counted.
 //   a name given as a template literal carrying a substitution
 //     → the name is resolved at RUNTIME ("template computed name"); in the source it is not a
 //       literal, so it is `unresolved`.
@@ -54,13 +60,15 @@
 //   CANNOT VERIFY. If two such apostrophes pair up, the scan can be wrong without saying so —
 //   this is the one case where this module could be silently mistaken, and the balance check
 //   below is what usually catches it.
-// • `bench(` sites are collected separately in `benches` and are NOT cases: `vitest run` does not
-//   execute benchmarks, so counting them in `expected` would make every count comparison lie.
+// • A `suite(` or `bench(` site — the previous runner's heads — is collected in `foreign` and
+//   makes the file NON-ENUMERABLE. This runner defines neither, so such a file throws at module
+//   scope and yields a COLLECTION failure rather than cases; counting its `it(` sites in
+//   `expected` would claim cases the artifact can never carry.
 // • A case generated inside a loop or an iteration callback is `unresolved` by enclosure, even
 //   when its name happens to be a literal: multiplicity is unknown. The enclosure test
 //   over-approximates on purpose — it errs toward CANNOT VERIFY, never toward green.
-// • A RENAMED test head is not followed. `test.extend({…})` assigned to a name is DETECTED and
-//   makes the file not enumerable (it lands in `unparsable`), because its cases would otherwise
+// • A RENAMED test head is not followed. `test.extend({…})` assigned to a name is DETECTED as an
+//   unknown modifier and makes the file not enumerable, because its cases would otherwise
 //   be invisible — an undercount is the one direction a gate must never fail in. A plain alias
 //   (`const t = it;`) is NOT detectable by a token scan and would undercount silently: that is
 //   the reason L-testshape requires the declared call heads in a spec test, and the reason this
@@ -68,29 +76,50 @@
 
 import { createHash } from 'node:crypto';
 
-/** Call heads this module recognises. `suite` is Vitest's alias of `describe`. */
-const SUITE_HEADS = new Set(['describe', 'suite']);
-const TEST_HEADS = new Set(['it', 'test']);
-const BENCH_HEADS = new Set(['bench']);
+/**
+ * Call heads this module recognises, MEASURED against the runner's own declared surface
+ * (`@jest/globals@30.5.2/build/index.d.ts:11-24`): the focus and skip forms are separate
+ * HEADS, not modifiers, so they belong in these sets and not in KNOWN_MODIFIERS.
+ */
+const SUITE_HEADS = new Set(['describe', 'fdescribe', 'xdescribe']);
+const TEST_HEADS = new Set(['it', 'test', 'fit', 'xit', 'xtest']);
+
+/**
+ * Heads the PREVIOUS runner defined and this one does not. They are not ignored and they are
+ * not counted: the runner leaves them as undefined identifiers, so a file calling one throws at
+ * module scope and contributes a COLLECTION failure instead of cases. Counting its `it(` sites
+ * would claim cases the artifact can never carry, so such a file is made non-enumerable and the
+ * head is named — see `foreign` in the return shape.
+ */
+const FOREIGN_HEADS = new Set(['suite', 'bench']);
+
+/**
+ * The head spellings that carry a skip or a focus by themselves. They are read in addition to the
+ * `.skip` / `.only` chain, and an enclosing one applies to every case inside it: `xdescribe` skips
+ * its whole block, so a case under it is reported skipped even though its own chain is empty.
+ */
+const SKIP_HEADS = new Set(['xdescribe', 'xit', 'xtest']);
+const ONLY_HEADS = new Set(['fdescribe', 'fit']);
 
 /** Modifiers that take their own argument list before the name: `it.each(table)('…')`. */
-const CALL_MODIFIERS = new Set(['each', 'for', 'skipIf', 'runIf', 'extend']);
+const CALL_MODIFIERS = new Set(['each']);
 
-/** Every modifier this module knows. An unknown one makes the case unresolved, not ignored. */
+/**
+ * Every modifier this module knows. An unknown one makes the case unresolved, not ignored —
+ * which is why this set is measured rather than generous: `@jest/types@30.5.1/build/index.d.ts`
+ * declares `only`/`skip`/`each` on describe (:459-465) and `only`/`skip`/`todo`/`each`/
+ * `failing`/`concurrent` on it/test (:845-857). The previous runner's `for`, `fails`,
+ * `sequential`, `shuffle`, `skipIf`, `runIf`, `extend` and `scoped` are NOT here, so a site
+ * using one is unresolved — and that is accurate, because under this runner it is a call on
+ * `undefined`.
+ */
 const KNOWN_MODIFIERS = new Set([
   'each',
-  'for',
   'skip',
   'todo',
   'only',
-  'fails',
+  'failing',
   'concurrent',
-  'sequential',
-  'shuffle',
-  'skipIf',
-  'runIf',
-  'extend',
-  'scoped',
 ]);
 
 const KEYWORDS_BEFORE_REGEX = new Set([
@@ -438,9 +467,16 @@ function skipToToken(code, i, literals) {
 }
 
 // No lookahead for '(' here: the opening paren can be preceded by a masked literal, and a bare
-// identifier that is not a call at all (`import { it } from 'vitest'`) is DROPPED after the
+// identifier that is not a call at all (`import { it } from '@jest/globals'`) is DROPPED after the
 // post-check rather than reported as a broken case.
-const SITE_RE = /(^|[^\w$.])(describe|suite|it|test|bench)((?:\.[A-Za-z]+)*)/g;
+//
+// This alternation is the real head filter, so every head in SUITE_HEADS, TEST_HEADS and
+// FOREIGN_HEADS must appear in it. A head missing here is not a tolerated unknown — it is a case
+// site nobody counts, which is the one direction this module must never fail in. The focus and
+// skip spellings (`fit`, `xit`, `xtest`, `fdescribe`, `xdescribe`) are heads, not modifiers: the
+// leading letter is a word character, so the `[^\w$.]` boundary keeps `it` from matching inside
+// `fit` and each spelling has to be named.
+const SITE_RE = /(^|[^\w$.])(xdescribe|fdescribe|describe|suite|xtest|test|xit|fit|it|bench)((?:\.[A-Za-z]+)*)/g;
 
 const LOOP_RE = /\bfor[ \t]*\(|\bwhile[ \t]*\(|\.(?:forEach|map|flatMap|reduce)[ \t]*\(/g;
 
@@ -593,7 +629,7 @@ function innermostEnclosing(suites, site) {
  *                 bodyDigest: string, duplicate: boolean}>,
  *   unresolved: Array<{reason: string, head: string, modifiers: string[], suite: string[]|null,
  *                      line: number, column: number, raw: string}>,
- *   benches: Array<{name: string|null, line: number, column: number}>,
+ *   foreign: Array<{head: string, name: string|null, line: number, column: number}>,
  *   suites: Array<{name: string|null, line: number, depth: number, resolved: boolean}>,
  *   expected: number|null,
  *   counts: {resolved: number, unresolved: number, skipped: number, only: number, sites: number},
@@ -622,7 +658,7 @@ export function listCases(text, options = {}) {
 
   const suiteSites = sites.filter((s) => SUITE_HEADS.has(s.head));
   const testSites = sites.filter((s) => TEST_HEADS.has(s.head));
-  const benchSites = sites.filter((s) => BENCH_HEADS.has(s.head));
+  const foreignSites = sites.filter((s) => FOREIGN_HEADS.has(s.head));
 
   const unresolved = [];
   const suiteInfo = new Map();
@@ -638,9 +674,11 @@ export function listCases(text, options = {}) {
     const r = [];
     if (site.bad !== null) r.push(site.bad);
     if (site.unknown.length > 0) r.push(`unknown modifier${site.unknown.length > 1 ? 's' : ''} .${site.unknown.join(', .')}`);
-    const eachLike = site.chain.find((c) => c === 'each' || c === 'for');
+    const eachLike = site.chain.find((c) => c === 'each');
     if (eachLike !== undefined) {
-      r.push(`.${eachLike} — one case per row, and the row names are FORMATTED by Vitest (measured: '%i' is substituted), so the names cannot be derived from the source`);
+      r.push(
+        `.${eachLike} — one case per row, and the row names are FORMATTED by the runner (measured 2026-11-02 on jest 30: '%i', '%s' and '%p' are substituted from the row, and '$prop' from an object row), so the names cannot be derived from the source`,
+      );
     }
     if (site.bad === null && site.nameLiteral === null) r.push('the name is not a string literal');
     if (site.bad === null && site.nameLiteral !== null && !site.nameLiteral.isLiteral) {
@@ -705,8 +743,12 @@ export function listCases(text, options = {}) {
       test: testName,
       suite,
       modifiers: s.chain,
-      skipped: s.chain.includes('skip') || s.chain.includes('todo'),
-      only: s.chain.includes('only'),
+      skipped:
+        s.chain.includes('skip') ||
+        s.chain.includes('todo') ||
+        SKIP_HEADS.has(s.head) ||
+        path.some((q) => SKIP_HEADS.has(q.head)),
+      only: s.chain.includes('only') || ONLY_HEADS.has(s.head) || path.some((q) => ONLY_HEADS.has(q.head)),
       line: pos.line,
       column: pos.column,
       offset: s.identStart,
@@ -715,14 +757,24 @@ export function listCases(text, options = {}) {
     });
   }
 
-  const benches = benchSites.map((b) => {
+  const foreign = foreignSites.map((b) => {
     const pos = at(b.identStart);
     return {
+      head: b.head,
       name: b.nameLiteral !== null && b.nameLiteral.isLiteral ? b.nameLiteral.value : null,
       line: pos.line,
       column: pos.column,
     };
   });
+
+  // A foreign head is a scanner-level problem, which is what makes the file non-enumerable: it
+  // feeds `unparsable` and clears `derivable` below, so no caller can read a case count from a
+  // file the runner cannot even load.
+  for (const f of foreign) {
+    problems.push(
+      `line ${String(f.line)}: \`${f.head}(\` is not defined by this runner — the file fails to COLLECT, so its cases cannot be enumerated`,
+    );
+  }
 
   // Duplicate names: either a copy-paste or a loop this module could not see. Either way the
   // mapping name → case is not 1:1, so the artifact cannot be matched by name any more.
@@ -738,14 +790,18 @@ export function listCases(text, options = {}) {
   if (unresolved.length > 0) notes.push(`${unresolved.length} case site(s) could not be enumerated`);
   if (duplicates.length > 0) notes.push(`duplicate case name(s): ${duplicates.join(', ')}`);
   if (problems.length > 0) notes.push(`scanner: ${problems.join('; ')}`);
-  if (benches.length > 0) notes.push(`${benches.length} bench() site(s) are not counted as cases (vitest run does not execute them)`);
+  if (foreign.length > 0) {
+    notes.push(
+      `${foreign.length} site(s) call a head this runner does not define (${[...new Set(foreign.map((f) => `${f.head}(`))].join(', ')})`,
+    );
+  }
 
   const derivable = unresolved.length === 0 && duplicates.length === 0 && problems.length === 0;
 
   return {
     cases,
     unresolved,
-    benches,
+    foreign,
     suites: [...suiteInfo.values()].map((i) => ({
       name: i.name,
       line: at(i.site.identStart).line,

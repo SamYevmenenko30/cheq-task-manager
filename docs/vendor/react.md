@@ -40,7 +40,7 @@ Two consequences worth stating rather than discovering:
   typechecks is not a member that exists — the shape of that failure is measured in
   [fastify.md](fastify.md), where a declared field is `undefined` at runtime.
 - `skipLibCheck: true` (`tsconfig.base.json:26`,
-  [TD-0004](../tech-debt/TD-0004-vitest-does-not-typecheck.md)) means errors *inside*
+  [TD-0004](../tech-debt/TD-0004-runner-does-not-typecheck.md)) means errors *inside*
   `@types/react` are not reported at all.
 
 ## Entry points (from the runtime package, the only authority on them)
@@ -67,8 +67,10 @@ failure as no digest.
 
 ## Cited, typechecked and observed in a probe — available to the first spec that needs them
 
-Measured in a temporary `apps/web/test/` probe on 2026-11-01 (`tsc -p apps/web/tsconfig.json` exit 0,
-`vitest run --project web` 1 passed), deleted in the same command that created it:
+Measured in a temporary `apps/web/test/` probe on 2026-11-01 — under the runner of the day, whose
+name is left out because the observation is about React and not about it (`tsc -p
+apps/web/tsconfig.json` exit 0, the `web` project 1 passed) — deleted in the same command that
+created it:
 
 | member | signature | cited from |
 |---|---|---|
@@ -87,8 +89,8 @@ of the probe above, and it is the mistake the type is shaped to catch.
 
 ## Behaviour facts, measured
 
-All of the following is from one run in the `web` project (jsdom, Vitest's development build of
-React), 2026-11-01. Two `Root`s rendered the same component, one inside `StrictMode` and one not, each
+All of the following is from one run in the `web` project (jsdom, React's development build),
+2026-11-01, under the runner of the day. Two `Root`s rendered the same component, one inside `StrictMode` and one not, each
 logging on render, on effect mount and on effect cleanup:
 
     StrictMode:  render:a | render:a | effect:a | cleanup:a | effect:a

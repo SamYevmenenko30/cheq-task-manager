@@ -1,6 +1,6 @@
 ---
 name: core
-description: Platform-free work in packages/core only — rules, task model, scheduling, persistence shape, determinism — judged by tsc and `vitest --project core` in seconds. Never touches apps, configs, manifests, tools/gates or docs/specs. Delegate the core half of a tests-from-spec or implement-to-green step here.
+description: Platform-free work in packages/core only — rules, task model, scheduling, persistence shape, determinism — judged by tsc and `jest --selectProjects core` in seconds. Never touches apps, configs, manifests, tools/gates or docs/specs. Delegate the core half of a tests-from-spec or implement-to-green step here.
 tools: Read, Grep, Glob, Edit, Write, Bash
 skills:
   - ts-loop
@@ -24,7 +24,7 @@ flags it prints, do not assume them).
 - You NEVER run `red-check`, `gate-probes`, `ready`, Playwright, `pnpm dev:api`/`dev:web`
   (package.json:28-29 — a live server or dev server is advisory, never a verdict), and you never
   declare the verdict of record: the verifier role runs the checks of record.
-- You never edit `package.json`, any `tsconfig*.json`, `.oxlintrc.jsonc`, `vitest.config.ts`,
+- You never edit `package.json`, any `tsconfig*.json`, `.oxlintrc.jsonc`, `jest.config.mjs`,
   `playwright.config.ts`, `.npmrc`, `tools/**`, `apps/**`, `docs/specs/**`, `.githooks/**`.
   Fixture JSON is not yours either — the port plan (port-plan.md:313,1145) gives
   `packages/core/fixtures/**/*.json` to a separate `fixtures` role that is NOT WRITTEN YET; until it
@@ -49,11 +49,15 @@ flags it prints, do not assume them).
    in the commit message you PROPOSE — you do not commit; the orchestrating session or the human does.
 4. A verdict is read from an artifact: the `tsc.core.log` diagnostics and the JUnit XML under
    `.ci/runs/<ts>-<label>/`. An exit code is advisory and has lied here before. `tests="0"` is
-   CANNOT VERIFY, never green; a `<failure type="TypeError">` reading `… is not a function`, a
-   `type="Error"` reading `Cannot find module …`, or a testcase whose `name` equals a FILE PATH mean
-   PENDING IMPLEMENTATION, not proven-red (ADR-0005, docs/knowledge/testing.md).
-5. `vitest --project core` is node and `--project core-dom` is jsdom over the SAME files
-   (vitest.config.ts:28-34). `core-dom` is a parity lane, not a `kind`: the four kinds are
+   CANNOT VERIFY, never green, and so is a JSON report whose `passed + failed` is zero — that is
+   what a `-t` matching no case leaves behind (exit 0, `success: true`, measured). A
+   `<failure type="TypeError">` reading `… is not a function` or a `type="ReferenceError"` reading
+   `… is not defined` means PENDING IMPLEMENTATION, not proven-red (ADR-0005,
+   docs/knowledge/testing.md). An unwritten MODULE leaves no `<testsuite>` and no `<testcase>` in
+   the XML at all — it is counted only in the JSON channel, so read it there and expect red-check to
+   answer CANNOT VERIFY (tools/gates/red-check.mjs:121-129).
+5. `jest --selectProjects core` is node and `--selectProjects core-dom` is jsdom over the SAME files
+   (jest.config.mjs:94-97). `core-dom` is a parity lane, not a `kind`: the four kinds are
    core, api, web, e2e. A case that passes in one environment and fails in the other is
    `L-env-parity`'s finding and your bug.
 6. A comment states only an invariant THIS package enforces. A promise another package must keep is

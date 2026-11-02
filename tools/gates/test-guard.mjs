@@ -19,10 +19,10 @@
  *   spec-test / e2e-test   the assertions a spec is judged by
  *   skeleton               spec-less, green by design: never red-checked, still declared
  *   support / fixtures     a helper can fabricate green without a single test file changing
- *   test-config            vitest.config.ts, playwright.config.ts, any tsconfig*.json,
+ *   test-config            jest.config.mjs, playwright.config.ts, any tsconfig*.json,
  *                          apps/web/test/setup.ts — narrowing an `include` throws tests OUT of
  *                          the run without touching one test file, and the run still says PASS
- *   __snapshots__/*.snap   `vitest -u` rewrites the ASSERTION itself, silently and in bulk
+ *   __snapshots__/*.snap   `jest -u` rewrites the ASSERTION itself, silently and in bulk
  *
  * The snapshot row is the one that does NOT follow from the Unity original by analogy. There the
  * companion file a tool rewrites (`.meta`) is importer churn and never a violation; a naive port
@@ -183,7 +183,7 @@ const WHY_GUARDED = Object.freeze({
   support: 'test support: a helper can fabricate green with no test file changed',
   'test-config':
     'test configuration: narrowing an include throws tests out of the run while the run still says PASS',
-  snapshot: 'a snapshot: `vitest -u` rewrites the ASSERTION itself',
+  snapshot: 'a snapshot: `jest -u` rewrites the ASSERTION itself',
 });
 
 /**
@@ -613,7 +613,7 @@ function main(argv = process.argv.slice(2)) {
         g.form === 'snapshot'
           ? gone
             ? `deleted snapshot ${file}${inCommits} — the expected value is gone, so the test no longer asserts it`
-            : `rewritten snapshot ${file}${inCommits} — \`vitest -u\` replaced the assertion, not the code`
+            : `rewritten snapshot ${file}${inCommits} — \`jest -u\` replaced the assertion, not the code`
           : `${how} established ${g.form} ${file}${inCommits} (${g.why})`,
     });
   }

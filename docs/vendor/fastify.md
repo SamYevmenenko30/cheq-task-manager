@@ -143,8 +143,9 @@ The flag is set on the node response object, not on the serialised result
 and is `undefined` at runtime.
 
 This is worth a paragraph rather than a footnote because it is exactly the failure shape
-[TD-0004](../tech-debt/TD-0004-vitest-does-not-typecheck.md) names from two directions at once:
-Vitest erases types (esbuild), so the type channel never runs on the test, and `skipLibCheck: true`
+[TD-0004](../tech-debt/TD-0004-runner-does-not-typecheck.md) names from two directions at once:
+the test runner erases types rather than checking them (`@swc/jest` strips them in Rust), so the
+type channel never runs on the test, and `skipLibCheck: true`
 (`tsconfig.base.json:26`) means nothing checks the declaration file either. Nothing in this
 repository would have reported it; a probe against the real artefact did. Treat every member in the
 tables above the same way — cited is not measured, and the measured ones are marked.

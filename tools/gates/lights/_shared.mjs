@@ -105,7 +105,7 @@
  *
  * Beside that one declared reason there are the segments that are already
  * invisible to every tool in this toolchain — a `.`-prefixed segment (`.git`,
- * `.ci`, `.vitest`) and `node_modules`. Declaring one of those would change
+ * `.ci`, `.pnpm`) and `node_modules`. Declaring one of those would change
  * nothing, so `isExcluded` reports them with `why: 'self-hidden'` and
  * `L-visible` does not count them against the manifest. That list is a frozen
  * constant in CODE (`SELF_HIDDEN`) and deliberately NOT a manifest field: a
@@ -327,7 +327,7 @@ export const PREMISES = Object.freeze({
   node_modules: { rel: 'node_modules', cure: 'pnpm install' },
   tsc: { rel: 'node_modules/.bin/tsc', cure: 'pnpm install (typescript is a root devDependency)' },
   oxlint: { rel: 'node_modules/.bin/oxlint', cure: 'pnpm install (oxlint is a root devDependency)' },
-  vitest: { rel: 'node_modules/.bin/vitest', cure: 'pnpm install (vitest is a root devDependency)' },
+  jest: { rel: 'node_modules/.bin/jest', cure: 'pnpm install (jest is a root devDependency)' },
   playwright: { rel: 'node_modules/.bin/playwright', cure: 'pnpm install' },
 });
 
@@ -400,7 +400,7 @@ export const MANIFEST_NAMES = Object.keys(MANIFEST_REL);
 /** The four doors a path can be hidden behind — `visible.json` entries name the
  * ones that apply to them, and `L-visible` checks the doors it was told about
  * against the doors it finds. */
-export const DOORS = Object.freeze(['gitignore', 'oxlint-ignorePatterns', 'tsconfig-exclude', 'vitest-exclude']);
+export const DOORS = Object.freeze(['gitignore', 'oxlint-ignorePatterns', 'tsconfig-exclude', 'jest-ignorePatterns']);
 
 /**
  * Read one manifest. NEVER throws: an absent file is a STATE, a malformed one is
@@ -553,7 +553,7 @@ export function manifestProblems(read) {
 /**
  * Path segments that are already invisible to every tool in this toolchain, so
  * declaring one in `visible.json` would change nothing: a `.`-prefixed segment
- * (`.git`, `.ci`, `.vitest`, `.pnpm`) and `node_modules`. In CODE and frozen on
+ * (`.git`, `.ci`, `.pnpm`) and `node_modules`. In CODE and frozen on
  * purpose — see the header: a configurable self-hidden list is a second door.
  */
 export const SELF_HIDDEN = Object.freeze(['node_modules']);
@@ -923,7 +923,7 @@ export function classifyLib(absPath) {
  *     libLayouts, filesChecked }
  *
  *   `ok: false` + `reason` is what a LIGHT turns into cannot-verify. This reader
- *   returns no light status of its own: `crossCheck` in `../lib/vitest-json.mjs`
+ *   returns no light status of its own: `crossCheck` in `../lib/jest-json.mjs`
  *   had to be renamed because a field called `verdict` holding `'green'` is a
  *   label waiting to be misread, and the same trap is avoided here by not
  *   borrowing the vocabulary at all.

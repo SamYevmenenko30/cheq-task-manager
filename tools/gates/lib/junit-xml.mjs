@@ -1,13 +1,15 @@
 /**
- * The reader of the test artefact of record: Vitest's JUnit XML.
+ * The reader of the test artefact of record: the runner's JUnit XML.
  *
  * Zero dependencies, `node:` builtins only — regex over text, no XML library.
- * The shape is fixed by its producer (vitest 5.0.5, `--reporter=junit`) and
+ * The shape is fixed by its producer (jest 30 + jest-junit, configured in
+ * jest.config.mjs) and
  * every element and attribute named below was OBSERVED, not assumed. A parse
  * that cannot find `<testsuites` returns CANNOT VERIFY; it never guesses.
  *
- * THE MEASURED SHAPE (rerun: `pnpm exec vitest run --project core
- * --reporter=junit --outputFile.junit=<path>`):
+ * THE MEASURED SHAPE (rerun: `JEST_JUNIT_OUTPUT_FILE=<path> pnpm exec jest
+ * --selectProjects core --ci --runInBand` — the JUnit path is in the
+ * ENVIRONMENT, because jest-junit is declared in jest.config.mjs without one):
  *
  *   <testsuites name tests failures errors time>          — NO `skipped` here
  *     <testsuite name timestamp hostname tests failures errors skipped time>
@@ -15,7 +17,7 @@
  *       <testcase …><failure message type>…</failure></testcase>
  *       <testcase …><skipped/></testcase>                 — .skip AND .todo
  *
- * `classname` IS the file path, relative to the Vitest config root (measured:
+ * `classname` IS the file path, relative to the config root (measured:
  * `packages/core/test/skeleton/digest.test.ts` while the project's own root is
  * `./packages/core`). `name` IS `"<describe> > <test>"`, ` > ` separated, with
  * XML entities escaped in both attributes and bodies — `&apos; &gt; &lt; &amp;
@@ -40,7 +42,7 @@
  * node_modules. Callers that switch on a reason should assert exhaustiveness
  * against RED_REASONS rather than list the cases by hand.
  *
- * A COLLECTION FAILURE DOES NOT REACH THE CASE. When an import fails, Vitest
+ * A COLLECTION FAILURE DOES NOT REACH THE CASE. When an import fails, the runner
  * emits ONE synthetic testcase for the whole file, and its `name` is the file
  * BASENAME while `classname` stays the full path (measured: name
  * `c-module.test.ts`, classname `.ci/probe-junit/c-module.test.ts`). The note
@@ -56,10 +58,48 @@ import { basename } from 'node:path';
 /** The closed set of reasons `redReason` returns. */
 export const RED_REASONS = Object.freeze(['assertion', 'missing-symbol', 'missing-module', 'not-installed', 'unknown']);
 
-/** The only `<failure type>` this project reads as an honest assertion. Vitest
+/** The only `<failure type>` this project reads as an honest assertion. The runner
  * 5.0.5 writes exactly this string for a failed `expect` (measured). Any other
  * type is `unknown` ⇒ CANNOT VERIFY: a closed set fails closed. */
 export const ASSERTION_TYPES = Object.freeze(['AssertionError']);
+
+/**
+ * The `type` and `message` of a failure whose producer writes NEITHER attribute.
+ *
+ * MEASURED 2026-11-02, jest-junit 17: `<failure>` carries no `type=` and no
+ * `message=` at all — the whole thing is the element's text, whose first line is
+ * `<Type>: <message>` and whose remainder is the stack. The three signatures this
+ * project classifies all arrive this way:
+ *
+ *   Error: expect(received).toBe(expected) // Object.is equality   (+ Expected:/Received:)
+ *   TypeError: core.completeTask is not a function
+ *   ReferenceError: absentFn is not defined
+ *
+ * Reading the attributes alone made all three answer `unknown`, i.e. "red for a
+ * reason nobody can name", which red-check refuses — so under this producer the
+ * red-test phase could not classify a single failure.
+ *
+ * The message ends at the first STACK line (`    at …`), so a multi-line message
+ * such as the assertion's Expected/Received block survives whole while the stack
+ * never reaches `redReason`'s anchored patterns.
+ *
+ * → { type, message } — both '' when the body has no `Type: ` first line, which
+ * is honest: an unnamed failure stays unnamed rather than being guessed at.
+ */
+export function splitFailureBody(body) {
+  const text = String(body ?? '');
+  if (!text.trim()) return { type: '', message: '' };
+  const lines = text.split('\n');
+  const head = lines[0] ?? '';
+  const m = head.match(/^\s*([A-Za-z_$][\w$]*(?:Error|Exception)?)\s*:\s*([\s\S]*)$/);
+  if (!m) return { type: '', message: '' };
+  const rest = [m[2]];
+  for (const line of lines.slice(1)) {
+    if (/^\s+at\s/.test(line)) break;
+    rest.push(line);
+  }
+  return { type: m[1], message: rest.join('\n').trim() };
+}
 
 /** Whitespace-collapsed, trimmed — the one normalisation applied before any
  * name comparison, so two readers never disagree about a double space. */
@@ -98,7 +138,7 @@ export function decodeXml(s) {
  */
 export function parseJUnit(xml) {
   const rootTag = xml.match(/<testsuites\b[^>]*>/);
-  if (!rootTag) throw new Error('no <testsuites> root element — not a Vitest JUnit report');
+  if (!rootTag) throw new Error('no <testsuites> root element — not a JUnit report this reader knows');
   const root = rootTag[0];
 
   const suites = [];
@@ -120,6 +160,7 @@ export function parseJUnit(xml) {
     suites.push(suite);
 
     const caseRe = /<testcase\b([^>]*?)(\/>|>([\s\S]*?)<\/testcase>)/g;
+    const mine = [];
     let cm;
     while ((cm = caseRe.exec(body))) {
       const chead = `<testcase${cm[1]}>`;
@@ -130,16 +171,20 @@ export function parseJUnit(xml) {
       let status = 'passed';
       if (fm) {
         const ftag = `<${fm[1]}${fm[2]}>`;
+        const fbody = decodeXml(fm[4] ?? '').trim();
+        const fromBody = splitFailureBody(fbody);
         failure = {
-          message: decodeXml(attr(ftag, 'message')) ?? '',
-          type: decodeXml(attr(ftag, 'type')) ?? '',
-          body: decodeXml(fm[4] ?? '').trim(),
+          // The ATTRIBUTES first, because another producer may fill them; this one
+          // fills neither and puts everything in the body — see failureFromBody().
+          message: decodeXml(attr(ftag, 'message')) || fromBody.message,
+          type: decodeXml(attr(ftag, 'type')) || fromBody.type,
+          body: fbody,
         };
         status = fm[1] === 'error' ? 'errored' : 'failed';
       } else if (isSkipped) {
         status = 'skipped';
       }
-      cases.push({
+      mine.push({
         classname: decodeXml(attr(chead, 'classname')) ?? '',
         name: decodeXml(attr(chead, 'name')) ?? '',
         time: num(attr(chead, 'time')),
@@ -148,6 +193,30 @@ export function parseJUnit(xml) {
         suite: suite.name,
       });
     }
+
+    // A CASE THE SUITE DOES NOT COUNT DID NOT RUN, and the XML does not say which
+    // one. MEASURED 2026-11-02 on a file holding one `.skip` and one `.todo`:
+    //
+    //   <testsuite tests="1" skipped="1">      <- ONE
+    //     <testcase …><skipped/></testcase>    <- the .skip, marked
+    //     <testcase …></testcase>              <- the .todo, NO mark of any kind
+    //
+    // So a `.todo` is byte-for-byte a passing case in this artefact, and the only
+    // evidence that it never ran is arithmetic: two <testcase> elements against
+    // `tests="1"`. There is no way to attribute the excess to a particular row, so
+    // this does not guess: every case whose 'passed' was INFERRED from the absence
+    // of a child becomes `unreconciled`, which `caseTri` reads as cannot-verify
+    // (an unknown status is never a pass). A `<failure>` or a `<skipped/>` is
+    // STATED rather than inferred, so those keep what they say.
+    //
+    // Letting this through is how a test nobody has written yet reads green.
+    const declared = suite.tests;
+    suite.caseCount = mine.length;
+    suite.unreconciled = declared !== null && mine.length > declared;
+    if (suite.unreconciled) {
+      for (const c of mine) if (c.status === 'passed') c.status = 'unreconciled';
+    }
+    cases.push(...mine);
   }
 
   return {
@@ -301,6 +370,16 @@ export function redReason(failure) {
   const out = (reason, specifier = null) => ({ reason, type, message, specifier });
 
   if (ASSERTION_TYPES.includes(type)) return out('assertion');
+
+  // THIS PRODUCER'S assertion signature. Measured 2026-11-02: a failed `expect`
+  // arrives as type `Error` — which is far too generic to accept on its own, since
+  // every hand-thrown `new Error(...)` is one — with the MATCHER CALL as the first
+  // thing in the message: `expect(received).toBe(expected) // Object.is equality`.
+  // The matcher call is the signature, not the type, so that is what is matched.
+  // `expect(` rather than the literal `expect(received)` because the printed
+  // receiver varies with the matcher (`expect(jest.fn())…`); nothing else in this
+  // project writes a message beginning that way.
+  if (message.trimStart().startsWith('expect(')) return out('assertion');
 
   // `Cannot find package '<name>' imported from <file>` — the worktree was
   // never installed. Checked BEFORE module, because both are type="Error" and

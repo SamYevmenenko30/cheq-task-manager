@@ -1,6 +1,6 @@
 ---
 name: verifier
-description: Runs the checks of record and reports what the ARTIFACTS say — ready, the lights, spec-gate, test-guard, red-check, and the tsc/vitest/oxlint runs through tools/gates/run.mjs. Has no Edit and no Write; judges nothing by exit code, by a dev server's answer or by its own reading of code. Delegate "is this green?" here and expect paths to XML/JSON/logs, not opinions.
+description: Runs the checks of record and reports what the ARTIFACTS say — ready, the lights, spec-gate, test-guard, red-check, and the tsc/jest/oxlint runs through tools/gates/run.mjs. Has no Edit and no Write; judges nothing by exit code, by a dev server's answer or by its own reading of code. Delegate "is this green?" here and expect paths to XML/JSON/logs, not opinions.
 tools: Read, Grep, Glob, Bash
 skills:
   - ts-loop
@@ -39,16 +39,25 @@ You are the **verifier** role (AGENTS.md is canonical; the `ts-loop` skill is pr
   — an exit code was read as 0 twice in this project's history while the tool had failed, both times
   because the output was piped and `$?` belonged to the pipe's last stage. `filesChecked === 0` is
   CANNOT VERIFY.
-- tests: the JUnit XML plus the JSON for the same run, both asked for on the command line because
-  `outputFile` inside a `projects` entry is IGNORED by Vitest (vitest.config.ts:3-7). Cross-check the
-  two channels' counters. `tests="0"` is CANNOT VERIFY. Red is proven-red ONLY when
-  `<failure type>` is an assertion type AND the testcase `name` is the declared case name;
-  `type="TypeError"` with `… is not a function`, `type="Error"` with `Cannot find module …`, or a
-  testcase `name` equal to a FILE PATH all mean PENDING IMPLEMENTATION (ADR-0005).
-- env parity: `--project core` (node) and `--project core-dom` (jsdom) over the same files
-  (vitest.config.ts:28-34). An artifact older than any source under `packages/core` is a RERUN, not a
-  comparison — the freshness key is content (`sha256` over `git ls-files -s packages/core`), never
-  mtime, because a checkout rewrites mtime to "now".
+- tests: the JUnit XML plus the JSON for the same run. **Half that contract is in the ENVIRONMENT**:
+  `jest-junit` is declared with no `outputFile` (jest.config.mjs:60-82), so the XML goes wherever
+  `JEST_JUNIT_OUTPUT_FILE` pointed — `run.json`'s `envExtra` is where you read that it was set, and
+  `L-artifacts` judges that field exactly as it judges the argv. The required argv flags are `--ci`
+  and `--json` (tools/gates/lights/artifacts.mjs:146-157); a dotted `--outputFile.<reporter>=` in a
+  recorded argv is a finding, because this runner takes it silently and writes NO file. Cross-check
+  the two channels' COUNTERS and never their names: the JSON's `fullName` joins ancestors with a
+  SPACE while the XML's `name` joins with `' > '`. `tests="0"` is CANNOT VERIFY, and so is a JSON
+  report whose `passed + failed` is zero — that is what a `-t` matching no case leaves (exit 0,
+  `success: true`, measured). Red is proven-red ONLY when `<failure type>` is an assertion type AND
+  the testcase `name` is the declared case name; `type="TypeError"` with `… is not a function` and
+  `type="ReferenceError"` with `… is not defined` mean PENDING IMPLEMENTATION (ADR-0005). An
+  unwritten MODULE has no `<testsuite>` and no `<testcase>` in the XML at all and is counted only in
+  the JSON channel, which is why red-check answers CANNOT VERIFY for it today
+  (tools/gates/red-check.mjs:121-129) — report that as the reason, not as a red.
+- env parity: `--selectProjects core` (node) and `--selectProjects core-dom` (jsdom) over the same
+  files (jest.config.mjs:94-97). An artifact older than any source under `packages/core` is a RERUN,
+  not a comparison — the freshness key is content (`sha256` over `git ls-files -s packages/core`),
+  never mtime, because a checkout rewrites mtime to "now".
 - lint: `oxlint --type-aware --format=json`. `--type-aware` must be in the recorded `argv`: without
   the flag the type-aware rules do not run and NOTHING says so (.oxlintrc.jsonc:10-12). The file
   counter is `number_of_files`; `number_of_files === 0` is CANNOT VERIFY. `code` has the form

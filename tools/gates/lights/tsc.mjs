@@ -43,7 +43,7 @@
  * 5. `skipLibCheck: true` IS A DECLARED DEBT, NOT A SETTING. It hides whatever
  *    is wrong inside a `.d.ts`, so it is tolerated only while the debt entry
  *    that owns it exists AND still names it — TD-0004 does
- *    (docs/tech-debt/TD-0004-vitest-does-not-typecheck.md:16 cites
+ *    (docs/tech-debt/TD-0004-runner-does-not-typecheck.md:16 cites
  *    tsconfig.base.json:26, and :35 says this light is what pins it). Delete or
  *    silently rewrite that entry and this light goes red, which is the whole
  *    point of a reference: the tolerance and its justification cannot drift
@@ -146,7 +146,7 @@ const FORBIDDEN = Object.freeze([
  * it is a reference that has drifted. */
 const SKIP_LIB_CHECK_DEBT = Object.freeze({
   id: 'TD-0004',
-  file: 'docs/tech-debt/TD-0004-vitest-does-not-typecheck.md',
+  file: 'docs/tech-debt/TD-0004-runner-does-not-typecheck.md',
   mustMention: 'skipLibCheck',
 });
 

@@ -137,6 +137,16 @@ export const title = 'the sixteen standing lights: a planted defect and a revers
  * digests and the TD entries), so a fixture without it is a different world. */
 const EXTRA_TREES = Object.freeze(['docs']);
 
+/**
+ * The runner's own config, which `WORKSPACE_ROOT_FILES` in `./_harness.mjs`
+ * brings and this file only ASSERTS. L-orphans reads it for its collection
+ * bands and L-visible reads it as door 4, so a fixture without it makes both
+ * lights report about a project layout this repository does not have — and a
+ * light that read a world the repository has not got is the one failure these
+ * probes cannot tell from a planted defect.
+ */
+const RUNNER_CONFIG_FILES = Object.freeze(['jest.config.mjs']);
+
 /** A specifier that names a workspace package rather than a registry one — the
  * same test `../lights/deps.mjs` applies, kept here only to decide which
  * digests to plant. */
@@ -166,6 +176,13 @@ function workspace(label, { resolve = false, vendorDigests = false, commit = 'ch
   const listed = lsFiles([...EXTRA_TREES], { cwd: REPO_ROOT });
   assert(listed.ok, `workspace(${label}): git ls-files ${EXTRA_TREES.join(' ')} failed in ${REPO_ROOT}: ${listed.reason ?? 'no reason given'}`);
   for (const rel of listed.files) r.copyFrom(join(REPO_ROOT, rel), rel);
+
+  for (const rel of RUNNER_CONFIG_FILES) {
+    assert(
+      existsSync(join(r.dir, rel)),
+      `workspace(${label}): the fixture has no ${rel} — WORKSPACE_ROOT_FILES in ./_harness.mjs is what brings it, and a fixture without the runner config is a different world than the one the lights judge`,
+    );
+  }
 
   if (resolve) {
     for (const pkg of readPackages(REPO_ROOT).packages) {
@@ -224,13 +241,39 @@ function alsoMatches(row, what, ...res) {
   }
 }
 
+/**
+ * The cure for the ONE class of L-artifacts failure this group cannot plant and
+ * cannot fix. `lights/artifacts.mjs` is half-migrated: `judgeStep` already
+ * branches on `half === 'jest'` (:269) while `REQUIRED_FLAGS` (:136-146) and
+ * `PROGRAM_OF_HALF` are keyed `jest` and demand
+ * `--passWithNoTests=false` and `--retry=0`, two flags no jest argv carries.
+ * These probes are written against the CONTRACT, so they fire until that light
+ * catches up; this group owns neither the light nor the wrapper.
+ */
+const ARTIFACTS_CURE =
+  ' CURE in tools/gates/lights/artifacts.mjs, which this group may not edit: key REQUIRED_FLAGS and PROGRAM_OF_HALF by `jest` ' +
+  '(the program is `jest`; the required flags are --selectProjects, --ci and --runInBand, and the DANGEROUS token to refuse is --passWithNoTests rather than a missing --passWithNoTests=false), ' +
+  'and judge the recorded `envExtra` for JEST_JUNIT_OUTPUT_FILE the way `outputPaths` judges argv — the JUnit path is not a flag on this runner. ' +
+  'The step record itself comes from tools/gates/run.mjs, which does not write `envExtra` yet (see the gates group).';
+
+/**
+ * The cure for the ONE class of failure the readers in `tools/gates/lib/` have
+ * not finished the migration for, measured 2026-11-02 and the same diagnosis
+ * red-check.mjs's own header carries (:110-130).
+ */
+const READER_SHAPE_CURE =
+  ' CURE in tools/gates/lib/junit-xml.mjs, which this group may not edit: jest-junit writes <failure> with NO message= and NO type= attribute ' +
+  "(both are the element body's first line, `<Type>: <message>`), parseJUnit fills them with '' (:134-135), and redReason's " +
+  "`failure?.message ?? failure?.body` (:300) never reaches the body because '' is not nullish — so EVERY failure answers " +
+  '`unknown` with an empty type and an empty message, and every caller that prints a reason prints nothing.';
+
 /** A premise probe with one entry forced absent, for "the lane did not run". */
 const without = (premises, name) => ({ ...premises, [name]: { ...premises[name], present: false } });
 
 /** The two reasons a probe here cannot run, by the premise's own name. */
 const needTsc = (ctx) => (havePremise(ctx, 'tsc') ? null : skipped(`premise "tsc" absent: ${ctx.premises.tsc.rel} does not exist — ${ctx.premises.tsc.cure}`));
 const needOxlint = (ctx) => (havePremise(ctx, 'oxlint') ? null : skipped(`premise "oxlint" absent: ${ctx.premises.oxlint.rel} does not exist — ${ctx.premises.oxlint.cure}`));
-const needVitest = (ctx) => (havePremise(ctx, 'vitest') ? null : skipped(`premise "vitest" absent: ${ctx.premises.vitest.rel} does not exist — ${ctx.premises.vitest.cure}`));
+const needJest = (ctx) => (havePremise(ctx, 'jest') ? null : skipped(`premise "jest" absent: ${ctx.premises.jest.rel} does not exist — ${ctx.premises.jest.cure}`));
 
 // ------------------------------------------------------------------ fragments
 
@@ -238,7 +281,7 @@ const needVitest = (ctx) => (havePremise(ctx, 'vitest') ? null : skipped(`premis
  * string literal is deliberate: the scan runs over MASKED code, and a probe
  * that never carried the forbidden text in a legal position would not know. */
 const SPEC_TEST_OK = [
-  "import { describe, it, expect } from 'vitest';",
+  "import { describe, it, expect } from '@jest/globals';",
   '',
   "describe('CHQ-001 S1 the title rule', () => {",
   "  it('S1_keeps the literal title', () => {",
@@ -314,24 +357,42 @@ function writeRunRecord(r, name, extra = {}) {
   return record;
 }
 
-/** The argv of a vitest step that writes inside its own run directory. */
-const vitestArgv = (dirName) => [
-  'node_modules/.bin/vitest',
-  'run',
-  '--project',
+/**
+ * The argv of a JEST step that writes inside its own run directory, exactly as
+ * `jestArgv` in `../run.mjs` builds it. Two things differ from the previous
+ * runner and both matter to L-artifacts:
+ *   - ONE bare `--outputFile` (the JSON channel). The dotted
+ *     `--outputFile.<reporter>=` form is not Jest's.
+ *   - the JUNIT PATH IS NOT HERE AT ALL. jest-junit takes it from
+ *     JEST_JUNIT_OUTPUT_FILE, so half of the artefact contract travels in the
+ *     environment and a record carrying only argv cannot say where the run was
+ *     told to write. `jestStep` below records that half as `envExtra`.
+ */
+const jestStepArgv = (dirName) => [
+  'node_modules/.bin/jest',
+  '--selectProjects',
   'core',
-  '--reporter=junit',
-  `--outputFile.junit=.ci/runs/${dirName}/core.junit.xml`,
-  '--retry=0',
-  '--no-file-parallelism',
-  '--passWithNoTests=false',
+  '--ci',
+  '--runInBand',
+  '--json',
+  `--outputFile=.ci/runs/${dirName}/core.json`,
 ];
+
+/** One well-formed jest step of a run of record, argv AND the env half. */
+const jestStep = (dirName, extra = {}) => ({
+  half: 'jest',
+  kind: 'core',
+  exitCode: 0,
+  argv: jestStepArgv(dirName),
+  envExtra: { JEST_JUNIT_OUTPUT_FILE: `.ci/runs/${dirName}/core.junit.xml` },
+  ...extra,
+});
 
 /** A minimal, well-formed JUnit report with one passing case. */
 const junitXml = (classname, name) =>
   [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    '<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.01">',
+    '<testsuites name="jest tests" tests="1" failures="0" errors="0" time="0.01">',
     `  <testsuite name="${classname}" timestamp="1970-01-01T00:00:00.000Z" hostname="probe" tests="1" failures="0" errors="0" skipped="0" time="0.01">`,
     `    <testcase classname="${classname}" name="${name}" time="0.01" />`,
     '  </testsuite>',
@@ -378,7 +439,7 @@ const specNamingHome = (home) =>
     '## Assertions',
     '',
     '- **S1** Given a shared file, when a spec names it as a home, then the edit is covered.',
-    `  - kind: core · home: module: ${home} · verify: tsc-noemit + vitest-core · check: TODO`,
+    `  - kind: core · home: module: ${home} · verify: tsc-noemit + jest-core · check: TODO`,
     '  - inputs: shared_file=differs',
     '',
   ].join('\n');
@@ -976,26 +1037,37 @@ export const probes = [
     return null;
   }),
 
-  probe('L-orphans: a test file no Vitest project collects ⇒ fail (a test nobody runs reads exactly like a test that passes)', async (ctx) => {
+  probe('L-orphans: a test file no Jest project collects ⇒ fail (a test nobody runs reads exactly like a test that passes)', async (ctx) => {
     const skip = needTsc(ctx);
     if (skip !== null) return skip;
     const fx = workspace('orphans-test', { resolve: true });
-    fx.r.write('packages/core/stray.test.ts', "import { it, expect } from 'vitest';\nit('stray', () => { expect(1).toBe(1); });\n");
+    fx.r.write('packages/core/stray.test.ts', "import { it, expect } from '@jest/globals';\nit('stray', () => { expect(1).toBe(1); });\n");
     fx.r.commit('chore: a test outside every band');
     const row = await light(fx, 'L-orphans');
-    assertLight(row, 'fail', /packages\/core\/stray\.test\.ts:1: no Vitest project collects this file/, 'L-orphans with a test file outside every collection band');
+    assertLight(row, 'fail', /packages\/core\/stray\.test\.ts:1: no Jest project collects this file/, 'L-orphans with a test file outside every collection band');
     alsoMatches(row, 'L-orphans with an uncollected test', /bands: packages\/core\/test\/\*\*\/\*\.test\.ts/);
     fx.r.cleanup();
     return null;
   }),
 
   probe("L-orphans REVERSE: the untouched skeleton ⇒ pass, corroborated by the runner's own collection", async (ctx) => {
-    const skip = needVitest(ctx) ?? needTsc(ctx);
+    const skip = needJest(ctx) ?? needTsc(ctx);
     if (skip !== null) return skip;
     const fx = workspace('orphans-clean', { resolve: true });
     const row = await light(fx, 'L-orphans');
-    assertLight(row, 'pass', /core\+core-dom: \d+ file\(s\), and `vitest list --json` collects exactly those/, 'L-orphans on an untouched copy of this repository');
-    alsoMatches(row, 'L-orphans on a clean tree', /4 test file\(s\) across 3 collection band\(s\)/, /"\.\/testing" → packages\/core\/src\/testing\/digest\.ts/);
+    assertLight(row, 'pass', /core\+core-dom: \d+ file\(s\), and `jest --listTests --json` collects exactly those/, 'L-orphans on an untouched copy of this repository');
+    alsoMatches(
+      row,
+      'L-orphans on a clean tree',
+      /4 test file\(s\) across 3 collection band\(s\)/,
+      /"\.\/testing" → packages\/core\/src\/testing\/digest\.ts/,
+      // Every band is corroborated, not just the parity one: `jest --listTests
+      // --json` answers about FILES (measured — the previous runner answered
+      // about cases), so this note is the whole of what the runner can confirm.
+      /api: \d+ file\(s\), and `jest --listTests --json` collects exactly those/,
+      /web: \d+ file\(s\), and `jest --listTests --json` collects exactly those/,
+      /core \+ core-dom share packages\/core\/test \(a parity band, not a double collection/,
+    );
     fx.r.cleanup();
     return null;
   }),
@@ -1023,6 +1095,50 @@ export const probes = [
     const row = await light(fx, 'L-visible');
     assertLight(row, 'pass', /four doors checked over packages \+ apps \+ e2e/, 'L-visible with the blind spot declared in visible.json');
     alsoMatches(row, 'L-visible with a declared blind spot', /door gitignore: 1 ignored path\(s\) file-by-file/);
+    fx.r.cleanup();
+  }),
+
+  probe('L-visible: the FOURTH door in its jest spelling — a testPathIgnorePatterns nobody declared ⇒ fail, naming `jest-ignorePatterns`', async () => {
+    // Door 4 after the runner changed. The key is a REGULAR EXPRESSION matched
+    // against a full path (not a glob), so the pattern below is written as one;
+    // a glob here would compile to something that matches no repo-relative
+    // path, and "hides nothing" is a PASS — the wrong failure direction for a
+    // blind-spot guard.
+    const fx = workspace('visible-jest-ignored');
+    const cfg = fx.r.read('jest.config.mjs');
+    const patched = cfg.replace('const shared = {', "const shared = {\n  testPathIgnorePatterns: ['packages/core/test/skeleton/marker\\\\.test\\\\.ts'],");
+    assert(patched !== cfg, 'jest.config.mjs has no `const shared = {` to extend — this probe plants the fourth door through it, so the shape it plants into must exist');
+    fx.r.write('jest.config.mjs', patched);
+    fx.r.commit('chore: a test path the runner ignores and nobody declared');
+    const row = await light(fx, 'L-visible');
+    assertLight(
+      row,
+      'fail',
+      /packages\/core\/test\/skeleton\/marker\.test\.ts is hidden .*by the door "jest-ignorePatterns"/,
+      'L-visible with a tracked test the runner is told to ignore and visible.json does not declare',
+    );
+    alsoMatches(row, 'L-visible with an undeclared jest ignore pattern', /visible\.json declares nothing for it|declares it behind/);
+    fx.r.cleanup();
+  }),
+
+  probe('L-visible REVERSE: with NEITHER ignore key present the fourth door is a NOTE, not a problem ⇒ pass', async () => {
+    // The ordinary shape of this config declares no testPathIgnorePatterns and
+    // no modulePathIgnorePatterns, so door 4's hiding half is Jest's own
+    // default. A hard light must not block on that, and it must not be silent
+    // about it either: the absence is reported as a note naming the default.
+    const fx = workspace('visible-jest-default');
+    const cfg = fx.r.read('jest.config.mjs');
+    for (const key of ['testPathIgnorePatterns', 'modulePathIgnorePatterns']) {
+      assert(!cfg.includes(key), `jest.config.mjs declares ${key}, so this probe is no longer about the default — re-point it at whatever the config now says`);
+    }
+    const row = await light(fx, 'L-visible');
+    assertLight(row, 'pass', /four doors checked over packages \+ apps \+ e2e/, 'L-visible on an untouched copy, where the fourth door is the runner default');
+    alsoMatches(
+      row,
+      'L-visible on the default fourth door',
+      /door jest-ignorePatterns: jest\.config\.mjs declares no testPathIgnorePatterns/,
+      /testMatch: \d+ pattern\(s\) read as glob with the <rootDir>\/ token removed/,
+    );
     fx.r.cleanup();
   }),
 
@@ -1159,13 +1275,13 @@ export const probes = [
 
   // -------------------------------------------------------------- L-env-parity
   probe('L-env-parity: one case whose verdict depends on the environment ⇒ fail, with both verdicts and the reason', async (ctx) => {
-    const skip = needVitest(ctx);
+    const skip = needJest(ctx);
     if (skip !== null) return skip;
     const fx = workspace('parity-disagree', { resolve: true });
     fx.r.write(
       'packages/core/test/skeleton/env.test.ts',
       [
-        "import { describe, it, expect } from 'vitest';",
+        "import { describe, it, expect } from '@jest/globals';",
         '',
         "describe('the environment', () => {",
         "  it('has no document', () => {",
@@ -1177,13 +1293,24 @@ export const probes = [
     );
     const row = await light(fx, 'L-env-parity');
     assertLight(row, 'fail', /core \(node\)=green vs core-dom \(jsdom\)=red/, 'L-env-parity with a case that only passes under node');
-    alsoMatches(row, 'L-env-parity with a disagreement', /packages\/core\/test\/skeleton\/env\.test\.ts > the environment > has no document/, /under jsdom: AssertionError/);
+    alsoMatches(row, 'L-env-parity with a disagreement', /packages\/core\/test\/skeleton\/env\.test\.ts > the environment > has no document/);
+    // The light names the disagreement and must also say WHY — `under jsdom:
+    // <type>: <message>`, taken from redReason. MEASURED on this runner: both
+    // come back empty, so the detail reads `under jsdom: : ` and a reader is
+    // told a case disagrees without being told what the failing side said.
+    alsoMatches(
+      row,
+      `L-env-parity must name the failing side's reason, not only the verdicts.${READER_SHAPE_CURE}`,
+      // `<Type>: <message>`, both non-empty: a bare `under jsdom: : ` is what an
+      // empty type and an empty message produce, and `\S` alone would match its colon.
+      /under jsdom: [A-Za-z][A-Za-z0-9_$.]*: \S/,
+    );
     fx.r.cleanup();
     return null;
   }),
 
   probe('L-env-parity REVERSE: the untouched core set ⇒ pass, every case compared BY NAME', async (ctx) => {
-    const skip = needVitest(ctx);
+    const skip = needJest(ctx);
     if (skip !== null) return skip;
     const fx = workspace('parity-clean', { resolve: true });
     const row = await light(fx, 'L-env-parity');
@@ -1195,8 +1322,8 @@ export const probes = [
 
   probe('L-env-parity: the runner premise absent ⇒ cannot-verify naming it, never a pass', async () => {
     const fx = workspace('parity-no-runner');
-    const row = await light(fx, 'L-env-parity', { premises: without(fx.premises, 'vitest') });
-    assertLight(row, 'cannot-verify', /premise "vitest" absent: node_modules\/\.bin\/vitest does not exist/, 'L-env-parity with the runner premise forced absent');
+    const row = await light(fx, 'L-env-parity', { premises: without(fx.premises, 'jest') });
+    assertLight(row, 'cannot-verify', /premise "jest" absent: node_modules\/\.bin\/jest does not exist/, 'L-env-parity with the runner premise forced absent');
     alsoMatches(row, 'L-env-parity with no runner', /pnpm install/);
     fx.r.cleanup();
   }),
@@ -1216,26 +1343,73 @@ export const probes = [
     writeRunRecord(fx.r, `${STAMP}-test-core`);
     const row = await light(fx, 'L-artifacts');
     assertLight(row, 'cannot-verify', /no "steps" array/, 'L-artifacts on a lane record that names no judged tool');
-    alsoMatches(row, 'L-artifacts on a lane record with no steps', /--passWithNoTests=false, --retry=0 and --type-aware cannot be read back/);
+    alsoMatches(row, 'L-artifacts on a lane record with no steps', /cannot be read back/);
     fx.r.cleanup();
   }),
 
   probe('L-artifacts: a FIXED run-directory name ⇒ fail — a reused directory by construction', async () => {
     const fx = workspace('artifacts-fixed-dir');
-    writeRunRecord(fx.r, 'latest', { steps: [{ half: 'vitest', exitCode: 0, argv: vitestArgv('latest') }] });
+    writeRunRecord(fx.r, 'latest', { steps: [jestStep('latest')] });
     const row = await light(fx, 'L-artifacts');
     assertLight(row, 'fail', /\.ci\/runs\/latest: the directory name is not <stamp>-<label>/, 'L-artifacts on a run directory with a fixed name');
     alsoMatches(row, 'L-artifacts on a fixed directory', /a fixed name is a REUSED run directory by construction/);
     fx.r.cleanup();
   }),
 
-  probe('L-artifacts: a vitest step with no `--passWithNoTests=false` ⇒ fail, with the reason the flag exists', async () => {
+  probe('L-artifacts: a jest step with no `--ci` ⇒ fail, with the reason the flag exists', async () => {
+    // The MIGRATED form of "a pinned flag is missing". The previous runner's
+    // pinned pair was `--passWithNoTests=false` and `--retry=0`; neither has a
+    // jest spelling (Jest already fails an empty run and never retries
+    // unasked), so the rule now hangs on the flags that DO buy something —
+    // `--ci`, without which a missing snapshot is written and the case passes.
     const fx = workspace('artifacts-missing-flag');
     const name = `${STAMP}-test-core`;
-    writeRunRecord(fx.r, name, { steps: [{ half: 'vitest', exitCode: 0, argv: vitestArgv(name).filter((a) => a !== '--passWithNoTests=false') }] });
+    writeRunRecord(fx.r, name, { steps: [jestStep(name, { argv: jestStepArgv(name).filter((a) => a !== '--ci') }) ] });
     const row = await light(fx, 'L-artifacts');
-    assertLight(row, 'fail', /the vitest argv does not carry --passWithNoTests=false/, 'L-artifacts on a recorded vitest argv that could pass with no tests');
-    alsoMatches(row, 'L-artifacts on a missing flag', /an empty lane reads as a green one/);
+    assertLight(row, 'fail', /the jest argv does not carry --ci/, `L-artifacts on a recorded jest argv whose snapshots would be written rather than asserted.${ARTIFACTS_CURE}`);
+    alsoMatches(row, 'L-artifacts on a missing pinned flag', /snapshot/i, /Cure: the wrapper that writes this argv is tools\/gates\/run\.mjs/);
+    fx.r.cleanup();
+  }),
+
+  probe('L-artifacts: a jest step with no `--runInBand` ⇒ fail — the flag that replaced --no-file-parallelism is not asserted', async () => {
+    // `--runInBand` is the other half of the pinned pair in the runner contract
+    // (it replaced `--no-file-parallelism`): one schedule per run, so two test
+    // files cannot interleave through shared state and a verdict is
+    // reproducible. A record without it describes a run nobody can repeat, and
+    // REQUIRED_FLAGS.jest does not ask for it.
+    const fx = workspace('artifacts-no-runinband');
+    const name = `${STAMP}-test-core`;
+    writeRunRecord(fx.r, name, { steps: [jestStep(name, { argv: jestStepArgv(name).filter((a) => a !== '--runInBand') }) ] });
+    const row = await light(fx, 'L-artifacts');
+    assertLight(
+      row,
+      'fail',
+      /--runInBand/,
+      'L-artifacts on a recorded jest argv with no --runInBand.' +
+        ' CURE in tools/gates/lights/artifacts.mjs, which this group may not edit: add { re: /^--runInBand$/, flag: "--runInBand", why: "one schedule per run — it replaced --no-file-parallelism, and without it two test files interleave through shared state and the verdict is not reproducible" }' +
+        ' to REQUIRED_FLAGS.jest. tools/gates/run.mjs already passes it (jestArgv), so the flag is pinned in the wrapper and unasserted in the record.',
+    );
+    fx.r.cleanup();
+  }),
+
+  probe('L-artifacts: a jest step whose record carries no `envExtra` ⇒ not green — nothing says where the JUnit XML was sent', async () => {
+    // Half of this runner's artefact contract is in the environment: jest-junit
+    // takes its path from JEST_JUNIT_OUTPUT_FILE, and with that unset it writes
+    // ./junit.xml into the cwd — measured in this repository's root during the
+    // fixture capture, which is one file every run overwrites. A record holding
+    // only argv therefore cannot be checked for the defect this light exists
+    // for, and `judgeStep`'s `outputPaths` scan sees nothing at all.
+    const fx = workspace('artifacts-no-envextra');
+    const name = `${STAMP}-test-core`;
+    const step = jestStep(name);
+    delete step.envExtra;
+    writeRunRecord(fx.r, name, { steps: [step] });
+    const row = await light(fx, 'L-artifacts');
+    assert(
+      row.status !== 'pass',
+      `a jest step with no recorded environment must not read PASS: the JUnit path is not in argv, so this record does not say where the run was told to write and the light has nothing to judge.${ARTIFACTS_CURE}\n  detail: ${row.detail}`,
+    );
+    alsoMatches(row, `L-artifacts on a jest step with no envExtra.${ARTIFACTS_CURE}`, /envExtra|JEST_JUNIT_OUTPUT_FILE/);
     fx.r.cleanup();
   }),
 
@@ -1244,15 +1418,14 @@ export const probes = [
     const name = `${STAMP}-test-core`;
     writeRunRecord(fx.r, name, {
       steps: [
-        {
-          half: 'vitest',
-          exitCode: 0,
-          argv: ['node_modules/.bin/vitest', 'run', '--project', 'core', '--reporter=junit', '--outputFile.junit=.ci/tests/core.junit.xml', '--retry=0', '--passWithNoTests=false'],
-        },
+        jestStep(name, {
+          argv: ['node_modules/.bin/jest', '--selectProjects', 'core', '--ci', '--runInBand', '--json', '--outputFile=.ci/tests/core.json'],
+          envExtra: { JEST_JUNIT_OUTPUT_FILE: '.ci/tests/core.junit.xml' },
+        }),
       ],
     });
     const row = await light(fx, 'L-artifacts');
-    assertLight(row, 'fail', /sends --outputFile\.junit=\.ci\/tests\/core\.junit\.xml to \.ci\/tests\/core\.junit\.xml, which is not inside/, 'L-artifacts on a run that writes into a shared path');
+    assertLight(row, 'fail', /sends --outputFile=\.ci\/tests\/core\.json to \.ci\/tests\/core\.json, which is not inside/, `L-artifacts on a run that writes into a shared path.${ARTIFACTS_CURE}`);
     alsoMatches(row, 'L-artifacts on a stray output path', /two runs' artifacts share a path and neither has an owner/);
     fx.r.cleanup();
   }),
@@ -1260,9 +1433,9 @@ export const probes = [
   probe('L-artifacts REVERSE: a well-formed lane record ⇒ pass', async () => {
     const fx = workspace('artifacts-ok');
     const name = `${STAMP}-test-core`;
-    writeRunRecord(fx.r, name, { steps: [{ half: 'vitest', exitCode: 0, argv: vitestArgv(name) }] });
+    writeRunRecord(fx.r, name, { steps: [jestStep(name)] });
     const row = await light(fx, 'L-artifacts');
-    assertLight(row, 'pass', new RegExp(`\\.ci/runs/${STAMP}-test-core: vitest: \\d+ argv token\\(s\\), exit 0`), 'L-artifacts on a run of record that names its tool and writes into its own directory');
+    assertLight(row, 'pass', new RegExp(`\\.ci/runs/${STAMP}-test-core: jest: \\d+ argv token\\(s\\), exit 0`), `L-artifacts on a run of record that names its tool and writes into its own directory.${ARTIFACTS_CURE}`);
     fx.r.cleanup();
   }),
 

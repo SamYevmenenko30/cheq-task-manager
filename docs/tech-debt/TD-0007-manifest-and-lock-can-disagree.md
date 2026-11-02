@@ -1,6 +1,6 @@
 # TD-0007: "The install succeeded" does not mean "the tree matches the lock" — ~~and the root manifest and the lock disagree right now~~
 
-**Status:** Open · the general claim stands and no gate answers it yet; the live manifest defect is struck below — fixed 2026-11-01, twelve devDependencies declared at `package.json:10-23` and `--frozen-lockfile` now exits 0
+**Status:** Open · the general claim stands: nothing has observed an install leaving the tree matching the lock. The live manifest defect is struck below — reconciled 2026-11-01, and `--frozen-lockfile --lockfile-only` has exited 0 on the pair since. What the root declares TODAY is read from `package.json` and `git show HEAD:pnpm-lock.yaml`, never from this entry: the set is no longer the one struck below, because the test runner in it changed on 2026-11-02
 **Area:** `package.json` · `pnpm-lock.yaml` · `tools/gates/status.mjs` (`LOCKFILE_CLEAN`) · `tools/gates/red-check.mjs`
 **Raised:** 2026-11-01 · manifest half closed 2026-11-01
 
@@ -55,22 +55,27 @@ disk.
   more than was measured.
 - What does stand: the lock of record is HEAD's (`git show HEAD:pnpm-lock.yaml`, ADR-0003), so a run
   pinned to a commit and a reader asking about that commit name the same file.
-- `red-check` is specified to compare `sha256` of the lock it installed from against
-  `git show <mergeBase>:pnpm-lock.yaml` and answer CANNOT VERIFY on a mismatch, instead of running
-  quietly against whatever happens to be installed. Specified, not yet observed: `red-check.mjs` is
-  not written.
+- `red-check` compares `sha256` of the lock it installed from against
+  `git show <mergeBase>:pnpm-lock.yaml` and answers CANNOT VERIFY on a mismatch, instead of running
+  quietly against whatever happens to be installed. Written now (`tools/gates/red-check.mjs`), and
+  still not OBSERVED doing it on a real divergence — which is the same shape of gap as step 3 below,
+  and the reason this entry is not closed by the existence of the code.
 
 ## What closing it involves
 
 1. ~~Whoever owns the root `package.json` reconciles it with the lock.~~ Done 2026-11-01, see above.
-2. `tools/gates/status.mjs` prints `LOCKFILE_CLEAN` from a real check. Note the shape of the
-   available checks: the pnpm of record (`package.json:9`, read through ADR-0003, never copied into
-   prose) has **no** `--dry-run` for `install` — observed 2026-11-01, `ERROR Unknown option:
-   'dry-run'` — so the options are a real install in a throwaway location or
-   `pnpm install --frozen-lockfile --lockfile-only`. The latter is now known to exit 0 on an
-   agreeing pair and to fail with `ERR_PNPM_OUTDATED_LOCKFILE` on a disagreeing one, which is exactly
-   the discrimination `LOCKFILE_CLEAN` needs — and it is also the check that says nothing about
-   `node_modules`, so the flag must be named for what it reads: the two files, not the tree.
+2. ~~`tools/gates/status.mjs` prints `LOCKFILE_CLEAN` from a real check.~~ It does, and it does it
+   **offline**: the flag compares each tracked manifest's specifiers AT HEAD against the lock's
+   `importers` block AT HEAD and never spawns an install in any form
+   (`lockfileClean`, `tools/gates/status.mjs:444`). That choice is deliberate and it is also the
+   limit — a pre-flight that can rewrite the lockfile it is reporting on is not a pre-flight. Note
+   the shape of the alternatives, in case anyone reaches for one: the pnpm of record
+   (`package.json:9`, read through ADR-0003, never copied into prose) has **no** `--dry-run` for
+   `install` — observed 2026-11-01, `ERROR Unknown option: 'dry-run'` — so the only other options
+   are a real install in a throwaway location or `pnpm install --frozen-lockfile --lockfile-only`,
+   the latter known to exit 0 on an agreeing pair and to fail with `ERR_PNPM_OUTDATED_LOCKFILE` on a
+   disagreeing one. Every one of them, the implemented flag included, says nothing about
+   `node_modules`, which is why the flag is named for what it reads: the two files, not the tree.
 3. A `gate-probes` fixture plants a lock/manifest divergence and observes CANNOT VERIFY from
    `red-check`, rather than a quiet run. The divergence that was live in this repository is the
    cheapest possible fixture, and its exact error text is recorded above so the probe can assert on

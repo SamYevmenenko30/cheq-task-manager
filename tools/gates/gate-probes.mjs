@@ -20,7 +20,7 @@
  *   the tree dirty.
  *
  * ──────────────────────────────────────────────────────────────────────────────
- * WHY THIS IS NOT A VITEST TEST
+ * WHY THIS IS NOT A JEST TEST
  * ──────────────────────────────────────────────────────────────────────────────
  *
  * Deliberately outside the test glob. A `*.test.ts` here would fall under
@@ -50,7 +50,7 @@
  * | class       | planted                                  | observed in                                   |
  * |-------------|------------------------------------------|-----------------------------------------------|
  * | `type`      | `const n: number = 'not a number'` in core | tsc exit ≠ 0 AND `error TS2322` in the log    |
- * | `test`      | a failing `expect` in a core test        | `<failure type="AssertionError">` in the XML AND `numFailedTests > 0` in the JSON |
+ * | `test`      | a failing `expect` in a core test        | a `<failure>` whose body opens `Error: expect(received).toBe(expected)` in the XML AND `numFailedTests > 0` in the JSON |
  * | `lint`      | a floating promise in core               | oxlint exit 1 AND `typescript(no-floating-promises)` naming the file |
  * | `lint-flag` | the SAME floating promise                | oxlint WITHOUT `--type-aware` exits 0 and reports nothing |
  * | `boundary`  | `import 'react-dom/client'` in core      | tsc TS2307, which `classifyTs2307` calls `not-installed` for `react-dom` |
@@ -97,11 +97,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { PROBE_PATH, lockKey } from './lib/probe.mjs';
 import { readJUnit, fileVerdict } from './lib/junit-xml.mjs';
-import { readVitestJson } from './lib/vitest-json.mjs';
+import { readJestJson } from './lib/jest-json.mjs';
 import { classifyTs2307, readTsc } from './lib/tsc-log.mjs';
 import { readOxlint } from './lib/oxlint-json.mjs';
 import { repoRoot, statusPorcelain } from './lib/git.mjs';
-import { liveWatchers, typesArgv, vitestArgv, lintArgv } from './run.mjs';
+import { liveWatchers, typesArgv, jestArgv, jestEnv, lintArgv } from './run.mjs';
 import { byCodepoint, readPackages, readPremises } from './lights/_shared.mjs';
 import {
   MARKS,
@@ -171,7 +171,7 @@ export const PLANTS = Object.freeze({
     rel: 'packages/core/test/__probe/planted.test.ts',
     text: [
       "// planted by tools/gates/gate-probes.mjs --real; removed in a finally",
-      "import { describe, expect, it } from 'vitest';",
+      "import { describe, expect, it } from '@jest/globals';",
       '',
       "describe('a planted failure', () => {",
       "  it('fails on purpose so the lane is known to be able to fail', () => {",
@@ -304,28 +304,46 @@ function observeBoundary(root, dir) {
 
 /**
  * The test lane, and both channels of it: the XML must carry the measured
- * `AssertionError` type and the JSON must count the failure. One channel is not
+ * assertion signature and the JSON must count the failure. One channel is not
  * a cross-check of itself.
+ *
+ * WHERE THE SIGNATURE LIVES, measured 2026-11-02 on jest-junit 17.0.0 and the
+ * reason this is not `type="AssertionError"` any more: jest-junit writes
+ * `<failure>` with NO `message` and NO `type` ATTRIBUTE and puts
+ * `<Type>: <message>` on the FIRST LINE of the element body — for a failed
+ * `expect` that line is `Error: expect(received).toBe(expected)`. So the body
+ * is what carries the evidence, and `fixtures/jest/all-failed.junit.xml` is the
+ * committed artefact of the same shape.
+ *
+ * The trailing positional is Jest's own `testPathPatterns`; it keeps the
+ * observation to the planted file instead of running the whole core project,
+ * whose other files are not what is being observed.
  */
 function observeTest(root, dir) {
   plant(root, 'test');
   try {
     const junit = join(dir, 'core.junit.xml');
     const json = join(dir, 'core.json');
-    const args = [...vitestArgv('core', { junit, json, filter: null }), 'test/__probe/planted'];
-    const res = runBin('vitest', args, { cwd: root });
+    const args = [...jestArgv('core', { json, filter: null }), 'test/__probe/planted'];
+    const res = runBin('jest', args, { cwd: root, env: jestEnv({ junit }) });
     const xml = readJUnit(junit);
-    const js = readVitestJson(json);
-    if (res.status === 0) return notObserved(`vitest exited 0 with a failing expect planted — the test lane cannot fail. Output: ${res.combined.split('\n').slice(0, 4).join(' | ')}`);
+    const js = readJestJson(json);
+    if (res.status === 0) return notObserved(`jest exited 0 with a failing expect planted — the test lane cannot fail. Output: ${res.combined.split('\n').slice(0, 4).join(' | ')}`);
     if (!xml.ok) return notObserved(`the JUnit artefact is unusable: ${String(xml.reason)} (${junit})`);
-    if (!/type="AssertionError"/.test(res.combined) && !xml.cases.some((c) => c.failure?.type === 'AssertionError'))
-      return notObserved(`no <failure type="AssertionError"> in ${junit}: ${JSON.stringify(xml.cases.map((c) => `${c.name}:${String(c.failure?.type)}`))}`);
+    const ASSERTION_BODY = /Error: expect\(received\)\./;
+    const signature = xml.cases.filter((c) => ASSERTION_BODY.test(String(c.failure?.body ?? '')) || c.failure?.type === 'AssertionError');
+    if (!signature.length)
+      return notObserved(
+        `no failed case in ${junit} carries the measured assertion signature (type="AssertionError", or a <failure> body opening "Error: expect(received)."): ` +
+          JSON.stringify(xml.cases.map((c) => `${c.name}: type=${JSON.stringify(c.failure?.type)} body=${JSON.stringify(String(c.failure?.body ?? '').split('\n')[0])}`)),
+      );
     if (!js.ok) return notObserved(`the JSON channel is unusable: ${String(js.reason)} (${json})`);
     if (!(js.counts.failed > 0)) return notObserved(`the JSON channel counted numFailedTests=${String(js.counts.failed)} for a run that failed`);
     const v = fileVerdict(xml, { file: 'packages/core/test/__probe/planted.test.ts' });
     if (v.verdict !== 'red') return notObserved(`fileVerdict read ${v.verdict} for the planted file: ${v.why}`);
     return observed(
-      `vitest exited ${String(res.status)}; XML tests=${String(xml.totals.tests)} failures=${String(xml.totals.failures)} with type="AssertionError"; JSON numFailedTests=${String(js.counts.failed)}; fileVerdict read red`,
+      `jest exited ${String(res.status)}; XML tests=${String(xml.totals.tests)} failures=${String(xml.totals.failures)}, the failure body opening ${JSON.stringify(String(signature[0].failure?.body ?? '').split('\n')[0])}; ` +
+        `JSON numFailedTests=${String(js.counts.failed)}; fileVerdict read red`,
     );
   } finally {
     unplant(root, 'test');

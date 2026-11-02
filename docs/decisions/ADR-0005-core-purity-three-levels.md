@@ -45,11 +45,15 @@ run's count — it tracks whatever is in the project, and another session held a
 `node_modules/.pnpm/@typescript+typescript-darwin-x64@7.0.2/node_modules/@typescript/typescript-darwin-x64/lib/lib.*.d.ts`
 — the native compiler ships its library per platform and version, so an allowlist written from the
 classic path would reject every run on this machine. And the closure legitimately contains the test
-runner's declarations (`vitest/dist/index.d.ts`, `@vitest/mocker`, `expect-type`, `assertion-error`,
-`@types/chai`, `tinybench`, `vite/dist/node/module-runner.d.ts`), because `test/**` is part of the
-project (`packages/core/tsconfig.json:11`) and the tests import `vitest` by bare specifier
-(`packages/core/test/skeleton/marker.test.ts:4`). The allowlist is therefore three classes, not two,
-and one of them is machine-shaped.
+runner's declarations, because `test/**` is part of the project
+(`packages/core/tsconfig.json:11`) and the tests import the runner by bare specifier
+(`packages/core/test/skeleton/marker.test.ts:4`). On the day this was measured those declarations
+were `vitest/dist/index.d.ts`, `@vitest/mocker`, `expect-type`, `assertion-error`, `@types/chai`,
+`tinybench` and `vite/dist/node/module-runner.d.ts` — kept with their date, because that list is
+what showed the allowlist needs a class of its own. The import on that line is `@jest/globals`
+today, so the NAMES in class 3 are different ones and have not been re-listed: which paths the
+closure now carries is UNVERIFIED, while the reason class 3 exists is not. The allowlist is
+therefore three classes, not two, one of them machine-shaped and one of them runner-shaped.
 
 ## Decision
 
@@ -108,13 +112,18 @@ bypass, and level 2 is the compiler reporting on itself.
   light has to tolerate the path shape changing with platform, architecture and version. Level 3 is a
   token scan, which means it can be fooled by text the scan is not shaped for; it is a third channel,
   not a proof.
-- What is CANNOT VERIFY today, and why it is named rather than skipped: the numeric half of level 2.
-  `git ls-files packages/core` returns **zero** right now because the repository has no commits
-  (observed 2026-11-01), so the comparison has nothing to compare against. It becomes meaningful at the
-  first commit; until then the light reports `cannot-verify (no commit yet)` and not pass.
+- The numeric half of level 2 was CANNOT VERIFY for a measured reason, and the reason has expired:
+  `git ls-files packages/core` returned **zero** on 2026-11-01 because the repository had no commits,
+  so the comparison had nothing to compare against. It became meaningful at the first commit, and the
+  count it yields is read from that command rather than written here (ADR-0003). The light still
+  reports `cannot-verify (no commit yet)` and not pass in a repository that has none — a fresh
+  worktree before its first commit is that state.
 - What stays UNVERIFIED: the relative-path escape itself, re-proved by the `gate-probes` fixture that
-  plants it and must see `L-core-purity` fail; and whether the test-runner allowlist of class 3 is
-  stable across a Vitest bump (it is read from the closure, so a bump widens it silently until the
-  numeric half or the allowlist names the change).
+  plants it and must see `L-core-purity` fail; and the membership of class 3, which is no longer a
+  question about a version bump. The runner was REPLACED on 2026-11-02, so every name class 3 held
+  was replaced with it, and nothing has re-listed the closure since. That is the silent-widening
+  failure mode this bullet predicted, arriving as a swap rather than as a bump: class 3 is read from
+  the closure, so it admits whatever the new runner drags in until the numeric half or an explicit
+  allowlist names the change.
 - Changing any of the three levels, or the allowlist classes, is a `gate:` commit amending this ADR.
   Adding a fourth authoritative level is not the same thing as making the linter one.

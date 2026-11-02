@@ -54,7 +54,7 @@
  *    derives the platform segment; no platform name appears in this file.
  *  - `external` IS NOT A DEFECT. Measured on a clean tree, `packages/core`'s
  *    closure holds 26 external `.d.ts` files: the skeleton tests import
- *    `vitest`, which is a root devDependency, and its types come with it. A
+ *    `@jest/globals`, which comes with the root `jest` devDependency. A
  *    level that refused every path outside the package would fail here. What is
  *    refused is an IN-REPO path outside the package, and a `foreign` path with
  *    no `node_modules` segment — because `foreign` is also what externals look

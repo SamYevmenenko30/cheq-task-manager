@@ -1,50 +1,64 @@
 # Captured artifacts — the fixtures the artifact readers are probed against
 
-Every file here was **produced by the real toolchain on 2026-11-01** and committed verbatim, except
-the three the manifest marks `real: false`. `manifest.json` is the index: for each file it names the
-command that produced it, whether the bytes are verbatim, and — for a derived one — what was edited
-and why no run produces that shape.
+Every file here was **produced by the real toolchain** and committed verbatim, except the ones the
+manifest marks `real: false`. `manifest.json` is the index: for each file it names the command that
+produced it, whether the bytes are verbatim, and — for a derived one — what was edited and why no run
+produces that shape. The `jest/*` set was captured on **2026-11-02** with jest 30.5.2 + jest-junit
+17.0.0; the `tsc/*` and `oxlint/*` sets on 2026-11-01 and are untouched by the runner migration.
 
 ## Why they are committed
 
 `tools/gates/lib/*.mjs` holds one reader per artifact format, and a reader is only evidence if it has
 been run against the format the tools actually emit. A fixture written from a design note probes an
 imagined format: the note for this port said "the testcase name is the FILE PATH" on a collection
-failure, which is true and was not precise enough to implement from — the real pair is
-`classname="packages/core/test/__cap/collect.test.ts"` with `name="test/__cap/collect.test.ts"`, two
-spellings of one file, and the equality a reader was first written with returned `false` on every
-real collection failure.
+failure, which was true of the previous runner, was not precise enough to implement from, and is not
+true of this one at all.
 
-So the rule is: **a probe reads a captured artifact, never a hand-written one.** The three derived
-fixtures exist because no run produces their shape — a disagreement between the two channels has
-never been observed on this toolchain (TD-0005), and `oxlint`'s zero-file stdout is not JSON until
-something strips its prose line — and each says so in the manifest.
+So the rule is: **a probe reads a captured artifact, never a hand-written one.** The derived fixtures
+exist because no run produces their shape, and each says so in the manifest.
 
 ## Re-capturing
 
 A fixture goes stale when the tool that wrote it changes, not when this repository's code changes.
 The cure is to run the command in the manifest again and commit the new bytes; **never** to edit a
-file here so a probe goes green. `manifest.json` → `sources` carries the sha256 of the committed
-test sources a fixture was captured from, and a probe that compares a stored artifact against a live
-source SKIPS with "re-capture" when they disagree — a stale fixture must not read as a defect in the
-reader it is probing.
+file here so a probe goes green. `manifest.json` carries three things that make a re-capture exact:
 
-The four `packages/core/test/__cap/*.test.ts` files that produced the vitest fixtures were planted
-for the capture and removed in the same session; they are not committed, which is why their names
-survive only inside the artifacts and in the manifest's `command` fields.
+- `commandShape` — the argv AND the environment. The JUnit path is not a flag: jest-junit takes it
+  from `JEST_JUNIT_OUTPUT_FILE`, and with that variable unset it writes `./junit.xml` into the cwd
+  (observed in this repository's root during the capture session).
+- `captureFixtures` — the four `packages/core/test/__cap/*.test.ts` files each situation was planted
+  with. They are removed in the same session and are not committed, so their names survive only
+  inside the artifacts and in that block.
+- `sources` — the sha256 of the committed test sources a fixture was captured from. A probe that
+  compares a stored artifact against a live source reads these first and SKIPS with "re-capture"
+  when they disagree: a stale fixture must not read as a defect in the reader it is probing.
+
+## The runner changed, and the artifact mostly did not
+
+`jest.config.mjs` reproduces the file-path `classname` on purpose (`classNameTemplate: '{filepath}'`,
+`titleTemplate: '{classname} > {title}'`), so a green run looks the same as before and the readers
+parse it unchanged. Four differences were MEASURED during this capture and are recorded on the entry
+they belong to. They are facts about the artifacts, not verdicts about the readers:
+
+| measured | where to see it |
+|---|---|
+| `<failure>` carries no `message` and no `type` ATTRIBUTE — both are the first line of the element BODY | `jest/all-failed.junit.xml` |
+| a suite that failed to RUN emits no `<testsuite>` and no `<testcase>`, so its XML is shaped like an empty run | `jest/collection-failure.junit.xml` against `jest/empty-run.junit.xml` |
+| `it.todo` is a `<testcase>` with an empty body — no `<skipped/>` — and the `tests`/`skipped` counters exclude it | `jest/skipped-only.junit.xml` against `jest/skipped-only.json` |
+| the runner's own collection is an array of test FILES, not one record per case | `jest/list-core.json` |
 
 ## What each group of files is for
 
 | path | the rule it exercises |
 |---|---|
-| `vitest/empty-run.*` | `tests="0"` / `numTotalTests: 0` ⇒ CANNOT VERIFY. Measured: that run **exits 0** and `"success": true` |
-| `vitest/one-passed.*` | the ordinary green case, and the baseline the mismatch pair is derived from |
-| `vitest/all-failed.*` | the three red signatures in one artifact: `AssertionError`, `TypeError … is not a function`, `ReferenceError … is not defined` |
-| `vitest/skipped-only.*` | `<skipped/>` is never red and never green; `.skip` vs `.todo` survives only in the JSON counters |
-| `vitest/collection-failure.*` | the suffix form `classname.endsWith('/' + name)`, and the JSON channel's own `numTotalTests: 0` for the same run |
-| `vitest/foreign-file.*` | an artifact about another project: asked about a core file it is CANNOT VERIFY, not green |
-| `vitest/counter-mismatch.*` | `crossCheck` refusing two channels that describe different runs (derived) |
-| `vitest/core-skeleton.junit.xml` + `vitest/list-core.json` | the two enumerators agreeing — only after the list side's `\"` is unescaped |
+| `jest/empty-run.*` | `tests="0"` / `numTotalTests: 0` ⇒ CANNOT VERIFY. Measured: that run **exits 0** and `"success": true` |
+| `jest/one-passed.*` | the ordinary green case, and the baseline the mismatch pair is derived from |
+| `jest/all-failed.*` | three red cases in one artifact, and where their type and message actually live |
+| `jest/skipped-only.*` | `<skipped/>` is never red and never green; `.skip` vs `.todo` survives only in the JSON counters — and the `.todo` is absent from the XML counters altogether |
+| `jest/collection-failure.*` | a file that never loaded: invisible in the XML, nameable only in the JSON |
+| `jest/foreign-file.*` | an artifact about another project: asked about a core file it is CANNOT VERIFY, not green |
+| `jest/counter-mismatch.*` | `crossCheck` refusing two channels that describe different runs (derived) |
+| `jest/core-skeleton.junit.xml` + `jest/list-core.json` | the two enumerators: the XML names the cases, the runner's list names the files |
 | `tsc/*.log` | positioned diagnostics, a global diagnostic with no file position, and the empty log that is `filesChecked === 0` |
 | `oxlint/*.json` | `plugin(rule)` codes, `labels[].span` positions, and the two shapes of "it linted nothing" |
 

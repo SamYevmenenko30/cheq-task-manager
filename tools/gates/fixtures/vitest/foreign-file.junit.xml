@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<testsuites name="vitest tests" tests="1" failures="0" errors="0" time="0.00796502">
-    <testsuite name="apps/api/test/skeleton/marker.test.ts" timestamp="2026-11-01T18:28:51.612Z" hostname="Semens-MBP.bbrouter" tests="1" failures="0" errors="0" skipped="0" time="0.00796502">
-        <testcase classname="apps/api/test/skeleton/marker.test.ts" name="api skeleton &gt; names itself" time="0.005042013">
-        </testcase>
-    </testsuite>
-</testsuites>

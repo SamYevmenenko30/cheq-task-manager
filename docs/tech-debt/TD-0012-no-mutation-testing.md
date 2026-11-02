@@ -1,8 +1,8 @@
 # TD-0012: Nothing measures whether a test would NOTICE a behaviour change — there is no mutation lane and no coverage verdict
 
-**Status:** Open · `red-check` proves each test was red on the base, which is stronger evidence than coverage and weaker than mutation; the only visibility into breadth is the `S coverage` line `ready` prints, and it counts names, not strength
-**Area:** `tools/gates/red-check.mjs` · `tools/gates/ready.mjs` · `docs/knowledge/testing.md:90` · `docs/knowledge/process.md:16`, `:20`
-**Raised:** 2026-11-01
+**Status:** Open · `red-check` proves each test was red on the base, which is stronger evidence than coverage and weaker than mutation; the only visibility into breadth is the `S coverage` line `ready` prints, and it counts names, not strength. A coverage FLOOR now exists in the runner's config and no lane asks for it, which is its own entry (TD-0013) and not a substitute for this one
+**Area:** `tools/gates/red-check.mjs` · `tools/gates/ready.mjs` · `tools/gates/lights/testshape.mjs` · `jest.config.mjs` (`coverageThreshold`) · `docs/knowledge/testing.md` (the naming contract) · `docs/knowledge/process.md:16`, `:20`
+**Raised:** 2026-11-01 · re-checked 2026-11-02 against the new runner: the substitute still holds, and it acquired one new way to be defeated
 
 ## What is unproven
 
@@ -18,16 +18,23 @@ Two narrower gaps sit under that one:
 
 - **Breadth is reported, not checked.** The only visibility into how much of a spec a green suite
   actually covers is the `S coverage` line in the `ready` block, and it is a grep: `ready.mjs` counts
-  `S<n>_` tokens under the test trees (`docs/knowledge/testing.md:90`, `docs/knowledge/process.md:20`).
+  `S<n>_` tokens under the test trees (the naming contract in `docs/knowledge/testing.md`, cited without a
+  line number because that file is under active revision; `docs/knowledge/process.md:20`).
   A spec whose assertions are covered in part reads as a fraction on that line — one line in a block
   a human is expected to read — and nothing fails. That is a deliberate choice, since a spec
   may legitimately be implemented in stages, but it means **"the pipeline is green" never implies
   "the spec is covered"**, and a reader who skips the line will believe otherwise.
-- **Coverage is installed and is not a verdict.** `@vitest/coverage-v8` is declared at the root
-  (`package.json:16`) and no lane reads a coverage report, no threshold exists, and nothing in the
-  `ready` block mentions one. That is the right ordering — line coverage measures execution, not
-  assertion, and a threshold on it rewards tests that call code without checking it — but it should
-  be stated rather than left as an absence somebody later "fixes" with a percentage gate.
+- **Coverage is measurable, a floor is declared, and neither is a verdict.** What changed with the
+  runner is that the absence this bullet described is now half-filled: the runner's own config
+  declares a threshold on all four metrics over the backend sources (`jest.config.mjs`), and
+  `--coverage` really does instrument rather than quietly reporting nothing. No lane passes
+  `--coverage`, no light reads a coverage artifact, and nothing in the `ready` block mentions one, so
+  the floor binds exactly one caller: a human who types the flag. That gap has its own entry with the
+  measurement in it (TD-0013) and no number is copied here (ADR-0003). The previous runner's provider
+  `@vitest/coverage-v8` is still declared at the root (`package.json:19`) and is now a dependency of
+  nothing — a leftover, named here so it is not mistaken for the lane. The ORDERING stays right:
+  line coverage measures execution, not assertion, and a threshold on it rewards tests that call code
+  without checking it, which is why a percentage gate is not what closes this entry.
 
 ## Why it is safe right now
 
@@ -38,10 +45,18 @@ Two narrower gaps sit under that one:
   test — the one that passes before the feature exists — is caught at the gate rather than by a
   mutation run. This is strictly stronger evidence than coverage: coverage says a line ran, red-check
   says the assertion depended on the behaviour not being there. **The honest qualifier:**
-  `tools/gates/` holds `lib/` and nothing else today — `red-check.mjs` and `ready.mjs` are specified
-  and unwritten, like every gate here (TD-0005) — so what stands in for mutation testing right now is
-  a specification plus the three-phase discipline with a human signature in git between the phases,
-  not a run anyone has observed.
+  `tools/gates/red-check.mjs` and `tools/gates/ready.mjs` are written now, but no one has watched
+  either refuse a test that was green on the base, so what stands in for mutation testing is still a
+  specification plus the three-phase discipline with a human signature in git between the phases
+  (TD-0005 is the same shape of gap one lane over).
+- **The runner brought one new way to defeat that substitute, and it is refused by name.** A
+  `.failing` modifier INVERTS the verdict: a case whose body throws is reported as passed, so a spec
+  test written that way is green exactly when its assertion fails and `red-check` could never prove
+  it red — the substitute above would report the strongest possible evidence about a test that
+  asserts the opposite of what it says. `L-testshape` refuses `.failing` in a spec test by token scan
+  (`tools/gates/lights/testshape.mjs:157-165` for the measurement and the pattern, `:317` for the
+  refusal), by a token scan for the same reason the suppression directives are (TD-0004): a spec test
+  may not be allowed to disguise its own verdict, and a lint rule is one comment wide (ADR-0005).
 - **Its own limit is declared in the same vocabulary.** A test red for the wrong reason is classified
   and labelled, not accepted silently: `assertion-red` is the verdict of record and `crash-red
   (weaker)` is a distinct, weaker verdict for a test that was red because a symbol did not exist

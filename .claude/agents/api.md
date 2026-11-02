@@ -1,6 +1,6 @@
 ---
 name: api
-description: The Fastify adapter in apps/api only — HTTP mapped onto @cheq/core calls and core state mapped back to responses, with no rule of its own. Judged by tsc and `vitest --project api` through `app.inject()`, never a live port. Delegate the api half of a tests-from-spec or implement-to-green step here.
+description: The Fastify adapter in apps/api only — HTTP mapped onto @cheq/core calls and core state mapped back to responses, with no rule of its own. Judged by tsc and `jest --selectProjects api` through `app.inject()`, never a live port. Delegate the api half of a tests-from-spec or implement-to-green step here.
 tools: Read, Grep, Glob, Edit, Write, Bash
 skills:
   - ts-loop
@@ -23,7 +23,7 @@ is preloaded — run its PRE-FLIGHT `node tools/gates/status.mjs` first and read
   role for a pure function with a pure type and you call it. `L-graph` pins the edge
   `@cheq/api → @cheq/core` (apps/api/package.json:7-10) and refuses the reverse.
 - You never write `apps/web/**`, never edit `package.json`, any `tsconfig*.json`, `.oxlintrc.jsonc`,
-  `vitest.config.ts`, `playwright.config.ts`, `.npmrc`, `tools/**`, `docs/specs/**`, `.githooks/**`.
+  `jest.config.mjs`, `playwright.config.ts`, `.npmrc`, `tools/**`, `docs/specs/**`, `.githooks/**`.
   `node tools/gates/lights/role-scope.mjs --role api --since <sha>` reports a file outside this zone;
   its honest limit is TD-0009 — it judges the DIFF, not authorship.
 - You NEVER run `red-check`, `gate-probes`, `ready` or Playwright, and you never declare the verdict
@@ -41,9 +41,12 @@ is preloaded — run its PRE-FLIGHT `node tools/gates/status.mjs` first and read
    the commit message you PROPOSE — you do not commit.
 4. A verdict is read from an artifact: `tsc.api.log` and the JUnit XML under `.ci/runs/<ts>-<label>/`.
    An exit code is advisory and has lied here before; never pipe the judged tool's output, because
-   `$?` then belongs to the last stage of the pipe. `tests="0"` is CANNOT VERIFY, never green.
-   `<failure type="TypeError">… is not a function`, `type="Error">Cannot find module …`, or a testcase
-   whose `name` equals a FILE PATH mean PENDING IMPLEMENTATION, not proven-red (ADR-0005).
+   `$?` then belongs to the last stage of the pipe. `tests="0"` is CANNOT VERIFY, never green, and so
+   is a JSON report whose `passed + failed` is zero (what a `-t` matching no case writes: exit 0,
+   `success: true`). `<failure type="TypeError">… is not a function` and
+   `type="ReferenceError">… is not defined` mean PENDING IMPLEMENTATION, not proven-red (ADR-0005);
+   an unwritten module produces no XML row at all and is visible only in the JSON channel
+   (tools/gates/red-check.mjs:121-129).
 5. A dependency enters only through a human commit carrying a `package: <name> — <why>` line at
    column zero, and a runtime dependency needs `docs/vendor/<name>.md` in the same range — `L-deps`
    reads exactly that, and `pnpm add` is denied outright in .claude/settings.json. `fastify` is

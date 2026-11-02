@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="17" failures="0" errors="0" time="0.623">
+  <testsuite name="packages/core/test/skeleton/digest.test.ts" errors="0" failures="0" skipped="0" timestamp="2026-11-01T23:09:59" time="0.343" tests="16">
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="sha256 against the published vectors &gt; hashes the empty string" time="0.008" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="sha256 against the published vectors &gt; hashes &quot;abc&quot;" time="0.001" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="sha256 against the published vectors &gt; hashes the 56-byte message, where the padding branch changes" time="0.001" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="sha256 against the published vectors &gt; hashes a message longer than one block" time="0.001" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="utf8 encoding is the encoder, not the platform &gt; encodes a two-byte code point" time="0.003" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="utf8 encoding is the encoder, not the platform &gt; encodes a surrogate pair as four bytes" time="0.002" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest depends on the value and nothing else &gt; ignores object key order" time="0.004" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest depends on the value and nothing else &gt; ignores Set insertion order" time="0.003" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest depends on the value and nothing else &gt; ignores Map insertion order" time="0.002" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest depends on the value and nothing else &gt; separates a Set from an array with the same members" time="0.002" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest depends on the value and nothing else &gt; is 16 hex characters" time="0.002" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest refuses what would make it depend on something else &gt; refuses a Date" time="0.031" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest refuses what would make it depend on something else &gt; refuses undefined" time="0.003" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest refuses what would make it depend on something else &gt; refuses NaN" time="0.002" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest refuses what would make it depend on something else &gt; refuses a cycle" time="0.002" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+    <testcase classname="packages/core/test/skeleton/digest.test.ts" name="the digest refuses what would make it depend on something else &gt; names the path of the offending value" time="0.003" file="packages/core/test/skeleton/digest.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="packages/core/test/skeleton/marker.test.ts" errors="0" failures="0" skipped="0" timestamp="2026-11-01T23:10:00" time="0.121" tests="1">
+    <testcase classname="packages/core/test/skeleton/marker.test.ts" name="core skeleton &gt; names itself" time="0.003" file="packages/core/test/skeleton/marker.test.ts">
+    </testcase>
+  </testsuite>
+</testsuites>

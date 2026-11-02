@@ -609,14 +609,14 @@ export function cleanupScratch({ keep = keepScratch() } = {}) {
 /**
  * The root files a workspace fixture needs, beside the tracked trees. Each is
  * COPIED from this repository; a missing one is a refusal, never a quiet skip,
- * because a fixture that silently lacks `vitest.config.ts` probes a project
+ * because a fixture that silently lacks `jest.config.mjs` probes a project
  * layout this repository does not have.
  */
 export const WORKSPACE_ROOT_FILES = Object.freeze([
   'package.json',
   'pnpm-workspace.yaml',
   'tsconfig.base.json',
-  'vitest.config.ts',
+  'jest.config.mjs',
   '.oxlintrc.jsonc',
   '.gitignore',
   '.nvmrc',
@@ -815,7 +815,7 @@ export const selfProbes = [
     const r = scratchRepo({ label: 'harness-ws' });
     const ws = writeWorkspace(r, { lock: true });
     assert(ws.files.includes('packages/core/package.json'), `the fixture has no packages/core/package.json; it copied ${ws.files.length} file(s): ${ws.files.slice(0, 8).join(', ')}`);
-    assert(ws.files.includes('vitest.config.ts'), `the fixture has no vitest.config.ts; it copied ${ws.files.length} file(s)`);
+    assert(ws.files.includes('jest.config.mjs'), `the fixture has no jest.config.mjs; it copied ${ws.files.length} file(s)`);
     assert(/^[0-9a-f]{40}$/.test(String(ws.head)), `writeWorkspace should leave a commit; head=${String(ws.head)}`);
 
     const g = copyGates(r);

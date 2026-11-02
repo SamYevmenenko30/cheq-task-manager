@@ -86,9 +86,9 @@
  * ADR-0001's "Open hole": the ROOT's own devDependency set is importable from
  * every package by upward resolution, and it says this light's closure check is
  * what sees it. Measured: `packages/core`'s closure holds external `.d.ts` files
- * for `vitest`, `@vitest/mocker`, `expect-type`, `tinybench` and more, every one
- * resolved out of the workspace root, because the skeleton tests import `vitest`
- * by bare specifier. Failing on that would fail a correct tree, so the externals
+ * for `@jest/globals`, `expect`, `jest-mock` and more, every one resolved out of
+ * the workspace root, because the skeleton tests import `@jest/globals` by bare
+ * specifier. Failing on that would fail a correct tree, so the externals
  * reached past the package are COUNTED AND NAMED in the detail. That turns "the
  * hole is open and nothing reports it" into "the hole is open and this row says
  * how wide", which is the honest difference a light can make here.
@@ -134,8 +134,23 @@ const GROUPS = Object.freeze(['dependencies', 'devDependencies', 'peerDependenci
 /** Source extensions the specifier scan reads. */
 const SRC_EXTS = Object.freeze(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx']);
 
-/** The config files a bundler alias can hide in. */
-const ALIAS_CONFIG_RE = /^(vite|vitest)\.config\.(ts|mts|cts|js|mjs|cjs)$/;
+/** The config files a module-resolution override can hide in. `jest.config.*` is
+ * here because the runner's own override lives there under a different key — see
+ * ALIAS_KEY_RE. */
+const ALIAS_CONFIG_RE = /^(vite|jest)\.config\.(ts|mts|cts|js|mjs|cjs)$/;
+
+/**
+ * The keys that redirect a module specifier. `alias` is the bundler's; the
+ * runner's is `moduleNameMapper`, and it is the same hazard under another name —
+ * a second edge the manifests do not mention. One scan reads both, because a
+ * second reader of the same question is a second answer waiting to happen.
+ *
+ * This repository's own mapping is `{'^(\\.{1,2}/.*)\\.tsx?$': '$1'}`
+ * (jest.config.mjs): it strips a `.ts` extension off a RELATIVE specifier and its
+ * replacement is a capture reference, so it reaches into no package and the scan
+ * below skips it for the ordinary reason — the value holds no path.
+ */
+const ALIAS_KEY_RE = /\b(alias|moduleNameMapper)\s*:/g;
 
 /** How many items a single problem prints before it says how many are left. */
 const SHOW = 6;
@@ -341,7 +356,7 @@ export function specifierClaims(root, pkgs, visible) {
  * → { problems, notes }
  *
  * The bundler half is a TOKEN SCAN, and deliberately conservative: if the word
- * `alias` appears in a vite or vitest config and its value is not a literal this
+ * `alias` or `moduleNameMapper` appears in a vite or jest config and its value is not a literal this
  * reader can take apart, that is a PROBLEM rather than a silence — an alias
  * nobody could read is an edge nobody can reconcile with the manifests.
  */
@@ -389,7 +404,7 @@ export function aliasClaims(root, pkgs) {
     const s = scanSource(text);
     for (const p of s.problems) problems.push(`${rel}: the mask itself may be wrong (${p}) — this config cannot be scanned for an alias`);
     if (s.problems.length) continue;
-    const re = /\balias\s*:/g;
+    const re = new RegExp(ALIAS_KEY_RE.source, 'g');
     let m = re.exec(s.code);
     while (m !== null) {
       aliasSeen += 1;
@@ -397,11 +412,11 @@ export function aliasClaims(root, pkgs) {
       const literals = [...s.literals.values()].filter((lit) => lit.start > m.index && lit.start < m.index + 400);
       if (literals.length === 0)
         problems.push(
-          `${where}: an \`alias\` whose value holds no string literal this reader can take apart — spell the alias as literal strings, or remove it; an alias is a second edge the manifests do not mention and ADR-0001 rejected the arrangement`,
+          `${where}: a \`${m[1]}\` whose value holds no string literal this reader can take apart — spell it as literal strings, or remove it; a module-resolution override is a second edge the manifests do not mention and ADR-0001 rejected the arrangement`,
         );
       for (const lit of literals) {
         if (lit.isLiteral !== true || typeof lit.value !== 'string') {
-          problems.push(`${where}: a non-literal value inside \`alias\` — an alias nobody can read is an edge nobody can reconcile with the manifests`);
+          problems.push(`${where}: a non-literal value inside \`${m[1]}\` — an override nobody can read is an edge nobody can reconcile with the manifests`);
           continue;
         }
         const value = lit.value;
@@ -411,14 +426,16 @@ export function aliasClaims(root, pkgs) {
         const self = ownerOf(rel, pkgs);
         if (owner !== null && (self === null || owner.rel !== self.rel))
           problems.push(
-            `${where}: the alias value ${JSON.stringify(value)} resolves into ${owner.rel} (${String(owner.name)}) — ADR-0001 rejected a cross-package alias by name; import through the declared dependency instead`,
+            `${where}: the ${m[1]} value ${JSON.stringify(value)} resolves into ${owner.rel} (${String(owner.name)}) — ADR-0001 rejected a cross-package alias by name; import through the declared dependency instead`,
           );
       }
       m = re.exec(s.code);
     }
   }
 
-  notes.push(`alias scan: ${String(pathsSeen)} tsconfig "paths" entr(ies), ${String(aliasSeen)} \`alias\` site(s) in ${String(configs.length)} bundler config(s)`);
+  notes.push(
+    `alias scan: ${String(pathsSeen)} tsconfig "paths" entr(ies), ${String(aliasSeen)} alias/moduleNameMapper site(s) in ${String(configs.length)} resolution config(s)`,
+  );
   return { problems, notes };
 }
 
@@ -485,7 +502,7 @@ export function closureClaims(root, pkgs, premises) {
     }
     if (upward.size)
       notes.push(
-        `${pkg.rel}: ${String(upward.size)} external package(s) reached by UPWARD resolution past its own manifest — ${listOf([...upward])} (ADR-0001's named open hole: the root's devDependency set is importable from every package; counted here, not refused, because the skeleton tests legitimately import vitest this way)`,
+        `${pkg.rel}: ${String(upward.size)} external package(s) reached by UPWARD resolution past its own manifest — ${listOf([...upward])} (ADR-0001's named open hole: the root's devDependency set is importable from every package; counted here, not refused, because the skeleton tests legitimately import @jest/globals this way)`,
       );
     notes.push(`${pkg.rel}: closure ${String(c.inside.length)} inside · ${String(c.workspace.length)} in-repo elsewhere · ${String(c.external.length)} external · ${String(c.libs.length)} lib`);
   }

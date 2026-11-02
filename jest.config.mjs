@@ -57,6 +57,30 @@ const shared = {
 };
 
 export default {
+  // The JUnit reporter is declared HERE and its output path is NOT. jest-junit
+  // takes the path from JEST_JUNIT_OUTPUT_FILE, which is how every caller steers
+  // one run's artefact into that run's own directory (tools/gates/run.mjs and
+  // tools/gates/lights/env-parity.mjs both set it). A path written here would be
+  // one file every run overwrites — the defect L-artifacts refuses.
+  //
+  // The templates are load-bearing, not cosmetic: see header fact 4. Without
+  // them Jest's `classname` is the describe block, and every artefact reader in
+  // tools/gates/lib — plus the probes over them, plus how a COLLECTION failure is
+  // recognised — is written against the file-path shape.
+  reporters: [
+    'default',
+    [
+      'jest-junit',
+      {
+        classNameTemplate: '{filepath}',
+        titleTemplate: '{classname} > {title}',
+        ancestorSeparator: ' > ',
+        suiteNameTemplate: '{filepath}',
+        addFileAttribute: 'true',
+      },
+    ],
+  ],
+
   projects: [
     {
       ...shared,
@@ -93,6 +117,16 @@ export default {
   // projects only: the business logic lives in packages/core (engine-free, I/O
   // injected) and apps/api is its HTTP adapter, so "the backend" is both.
   // Frontend coverage is explicitly not required.
+  //
+  // DECLARED HERE AND READ BY NOTHING — TD-0013. No lane in tools/gates/run.mjs
+  // passes `--coverage`, no npm script mentions it and no light reads a coverage
+  // artifact (measured 2026-11-02), so this threshold bites only a human who asks
+  // for coverage by hand. Measured when asked: statements 94.44%, lines 95.53%,
+  // functions 100%, branches 72.54% — the floor FAILS on branches, and the only
+  // substantial code under these globs is packages/core/src/testing/, which is
+  // pipeline support rather than the product the floor is about. The number stays
+  // as written because it is the right number; the lane that asserts it lands with
+  // the first product endpoint, and the TD says what that takes.
   collectCoverageFrom: [
     'packages/core/src/**/*.ts',
     'apps/api/src/**/*.ts',

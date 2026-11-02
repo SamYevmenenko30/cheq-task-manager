@@ -27,11 +27,18 @@ What exists in the repository today:
 Two measurements decided the shape of this ADR.
 
 **The isolated linker blocks what the ROOT does not declare, not everything `@cheq/core` did not
-declare.** Observed 2026-11-01: `packages/core/test/skeleton/marker.test.ts:4` imports `vitest` by
-bare specifier; `pnpm exec tsc --noEmit -p packages/core/tsconfig.json` exits 0 with no diagnostics,
-and `--listFiles` on that same project lists `vitest/dist/index.d.ts`, `@vitest/mocker`,
-`expect-type`, `assertion-error`, `@types/chai`, `tinybench` and `vite/dist/node/module-runner.d.ts`
-— all resolved upward, out of the workspace root. `react-dom/client` fails from core only because
+declare.** Observed 2026-11-01, when the test runner was the previous one:
+`packages/core/test/skeleton/marker.test.ts:4` imported that runner by bare specifier;
+`pnpm exec tsc --noEmit -p packages/core/tsconfig.json` exited 0 with no diagnostics, and
+`--listFiles` on that same project listed `vitest/dist/index.d.ts`, `@vitest/mocker`, `expect-type`,
+`assertion-error`, `@types/chai`, `tinybench` and `vite/dist/node/module-runner.d.ts` — all resolved
+upward, out of the workspace root. That observation keeps its date and its names: it is the
+measurement this rule was written from, not a claim about today's tree. What holds today is the same
+shape under different names — the same line now imports `@jest/globals`
+(`packages/core/test/skeleton/marker.test.ts:4`), equally a root devDependency and equally invisible
+to `@cheq/core`'s own empty `dependencies`. Which declarations the closure contains since the runner
+changed is UNVERIFIED (nothing has re-listed it); the hole the measurement found is not.
+`react-dom/client` fails from core only because
 the root does not declare `react-dom`; the day it does, core can import it and the manifest check
 will not notice. The graph is a real carrier, and it is not a complete one.
 
@@ -80,7 +87,8 @@ Rejected alternatives, each for a stated reason:
 - **A built `dist` per package as the thing apps import.** `exports` points at `./src/*.ts` and every
   project is `noEmit` (`packages/core/tsconfig.json:9`, `tsconfig.base.json:13-17`). This is recorded
   so nobody "fixes" the boundary by adding a build: the honest second channel in this repository is
-  types (`tsc`) against behaviour (`vitest`), not `src` against `dist`.
+  types (`tsc`) against behaviour (the test runner), not `src` against `dist` — and which runner
+  produces the behaviour half is deliberately not what this ADR turns on.
 
 ## Consequences
 

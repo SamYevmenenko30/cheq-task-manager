@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="3" failures="3" errors="0" time="0.347">
+  <testsuite name="packages/core/test/__cap/failed.test.ts" errors="0" failures="3" skipped="0" timestamp="2026-11-01T23:10:17" time="0.203" tests="3">
+    <testcase classname="packages/core/test/__cap/failed.test.ts" name="the three captured red signatures &gt; fails an honest assertion" time="0.009" file="packages/core/test/__cap/failed.test.ts">
+      <failure>Error: expect(received).toBe(expected) // Object.is equality
+
+Expected: &quot;@cheq/nope&quot;
+Received: &quot;@cheq/core&quot;
+    at Object.toBe (/Users/semenyevmenenko/work/cheq-task-manager/packages/core/test/__cap/failed.test.ts:7:31)
+    at Promise.finally.completed (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)
+    at new Promise (&lt;anonymous&gt;)
+    at callAsyncCircusFn (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1774:10)
+    at _callCircusTest (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1167:40)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at _runTestInContext (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1103:3)
+    at runTestWithContext (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:996:5)
+    at _runTestsForDescribeBlockOnce (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1008:11)
+    at _runTestsForDescribeBlock (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at _runTestsForDescribeBlockOnce (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1003:11)
+    at _runTestsForDescribeBlock (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at run (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:789:3)
+    at runAndTransformResultsToJestFormat (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:2300:21)
+    at jestAdapter (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/runner.js:111:19)
+    at runTestInternal (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-runner@30.5.2/node_modules/jest-runner/build/index.js:247:16)
+    at runTest (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-runner@30.5.2/node_modules/jest-runner/build/index.js:315:7)</failure>
+    </testcase>
+    <testcase classname="packages/core/test/__cap/failed.test.ts" name="the three captured red signatures &gt; calls an export that does not exist" time="0" file="packages/core/test/__cap/failed.test.ts">
+      <failure>TypeError: core.completeTask is not a function
+    at Object.completeTask (/Users/semenyevmenenko/work/cheq-task-manager/packages/core/test/__cap/failed.test.ts:11:55)
+    at Promise.finally.completed (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)
+    at new Promise (&lt;anonymous&gt;)
+    at callAsyncCircusFn (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1774:10)
+    at _callCircusTest (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1167:40)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at _runTestInContext (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1103:3)
+    at runTestWithContext (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:996:5)
+    at _runTestsForDescribeBlockOnce (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1008:11)
+    at _runTestsForDescribeBlock (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at _runTestsForDescribeBlockOnce (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1003:11)
+    at _runTestsForDescribeBlock (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at run (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:789:3)
+    at runAndTransformResultsToJestFormat (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:2300:21)
+    at jestAdapter (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/runner.js:111:19)
+    at runTestInternal (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-runner@30.5.2/node_modules/jest-runner/build/index.js:247:16)
+    at runTest (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-runner@30.5.2/node_modules/jest-runner/build/index.js:315:7)</failure>
+    </testcase>
+    <testcase classname="packages/core/test/__cap/failed.test.ts" name="the three captured red signatures &gt; names something nobody wrote" time="0.002" file="packages/core/test/__cap/failed.test.ts">
+      <failure>ReferenceError: absentFn is not defined
+    at Object.absentFn (/Users/semenyevmenenko/work/cheq-task-manager/packages/core/test/__cap/failed.test.ts:16:5)
+    at Promise.finally.completed (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1834:28)
+    at new Promise (&lt;anonymous&gt;)
+    at callAsyncCircusFn (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1774:10)
+    at _callCircusTest (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1167:40)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at _runTestInContext (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1103:3)
+    at runTestWithContext (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:996:5)
+    at _runTestsForDescribeBlockOnce (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1008:11)
+    at _runTestsForDescribeBlock (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at _runTestsForDescribeBlockOnce (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:1003:11)
+    at _runTestsForDescribeBlock (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:824:5)
+    at run (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:789:3)
+    at runAndTransformResultsToJestFormat (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/jestAdapterInit.js:2300:21)
+    at jestAdapter (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-circus@30.5.2/node_modules/jest-circus/build/runner.js:111:19)
+    at runTestInternal (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-runner@30.5.2/node_modules/jest-runner/build/index.js:247:16)
+    at runTest (/Users/semenyevmenenko/work/cheq-task-manager/node_modules/.pnpm/jest-runner@30.5.2/node_modules/jest-runner/build/index.js:315:7)</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -25,12 +25,12 @@ Revision: 1 — <first draft; bump on every revision round and say in one clause
 Approved: see the git trailer `spec-approved: CHQ-XXX <name> <YYYY-MM-DD>` on a commit AFTER this
 spec's last content change — never written here.
 
-<!-- HOW TO READ THE SENTENCES IN THIS TEMPLATE. `tools/gates/` does not exist yet: verified
-2026-11-01 — the repository has no commits (`git log` on main: "your current branch 'main' has no
-commits yet"), `git ls-files` prints nothing, and `tools/` and `docs/` are empty directories. So every
-present-tense sentence below about a gate states the CONTRACT the gates are being written to and names
-the gate that must enforce it; none of it is a reading of running code. Sentences about the scaffold
-cite path:line and were true as read on 2026-11-01. A sentence with neither is marked UNVERIFIED.
+<!-- HOW TO READ THE SENTENCES IN THIS TEMPLATE. `tools/gates/` exists and is committed (verified
+2026-11-02), so every present-tense sentence below about a gate names code somebody can open: cite it
+`path:line` from the gate's own source, or do not write it. Sentences about the scaffold cite
+path:line too. A sentence with neither is marked UNVERIFIED — including anything about the RUNNER
+that is not in a measured record: this repository changed its test runner on 2026-11-02, and a flag
+remembered from the previous one is exactly the kind of sentence that reads true and is not.
 
 Delete every `<!-- … -->` comment and every line marked *(example — delete)* from a real spec. Keep
 the section headings and their order exactly: the parser matches headings literally, and
@@ -86,7 +86,7 @@ and the last write of a key wins. A key no gate reads does not exist: do not inv
 |---|---|---|---|
 | `kind:` | `core` · `api` · `web` · `e2e` | anything else; a second kind on one S (split the S); `web` for a rule that has no DOM in it | `kind: core` |
 | `home:` | `@cheq/core` · `@cheq/api` · `@cheq/web` · `module: <path>` · `route: <path>` · `screen: <path>` · `new: @cheq/<name>` · `deferred: TD-nnnn` · `out of scope: <why>` · `blocked: Qn`; several joined with ` + ` | a path that does not exist at HEAD unless it is `new:`; a directory; a wish ("somewhere in the api") | `home: @cheq/core + route: apps/api/src/routes/tasks.ts` |
-| `verify:` | DERIVED from `kind` by `deriveVerify`, never typed from taste: `core` ⇒ `tsc-noemit + vitest-core` · `api` ⇒ `tsc-noemit + vitest-api` · `web` ⇒ `tsc-noemit + vitest-web` · `e2e` ⇒ `playwright-chromium` | **nothing machine-local**: no version, no path, no artifact name, no probe state, no suffix; any other value fails spec-gate, which prints the value to write instead | `verify: tsc-noemit + vitest-core` |
+| `verify:` | DERIVED from `kind` by `deriveVerify` (`tools/gates/lib/spec-parse.mjs:96-109`), never typed from taste: `core` ⇒ `tsc-noemit + jest-core` · `api` ⇒ `tsc-noemit + jest-api` · `web` ⇒ `tsc-noemit + jest-web` · `e2e` ⇒ `playwright-chromium` | **nothing machine-local**: no version, no path, no artifact name, no probe state, no suffix; any other value fails spec-gate, which prints the value to write instead | `verify: tsc-noemit + jest-core` |
 | `check:` | `TODO` while the spec is being hardened; the TEST phase replaces it with the repo-relative path of the file that holds the cases | a path the test phase has not written yet; a glob; a command | `check: packages/core/test/CHQ-007/S1_due_window.test.ts` |
 | `inputs:` | `name=differs, name=invariant` — comma-separated, names `[a-z_]+`, mandatory on a live `kind: core` S, optional elsewhere | a value whose effect the vision does not decide (that is a `Qn`, never a guess — an agent never invents the product); a name containing ` · `; `open` (that was a wave word; waves are not ported) | `inputs: due_date=differs, timezone=invariant` |
 
@@ -108,7 +108,10 @@ never by a line in this file. Probe state is machine-local and never enters `ver
 suffix that reports machine state (Resonance's `(pending-calibration)`) was a function of a GITIGNORED
 per-machine file, so a committed spec failed after every package change and on every fresh clone. The
 constant `RETIRED_VERIFY` in tools/gates/lib/spec-parse.mjs stays with an EMPTY list — a cheap hook for
-a future format migration that must fail loudly rather than pass silently. -->
+a future format migration that must fail loudly rather than pass silently. The runner change of
+2026-11-02 rewrote these labels and still needed no entry, because no committed spec carried the
+previous spelling (read 2026-11-02: no `verify:` line under docs/specs/ names it). The next one may
+not be so lucky, which is what the hook is for. -->
 
 - **S1** Given <state>, when <action>, then <observable outcome>.
   - kind: <core|api|web|e2e> · home: <see the table> · verify: <derived> · check: TODO
@@ -119,7 +122,7 @@ a future format migration that must fail loudly rather than pass silently. -->
   by `packages/core/test/skeleton/digest.test.ts:47` — and not about any product feature. Note what that
   makes it: a check already GREEN on the base is a light, never an assertion, so in a real spec this
   sentence belongs in `## Lights` or nowhere. Delete it.)*
-  - kind: core · home: @cheq/core · verify: tsc-noemit + vitest-core · check: TODO
+  - kind: core · home: @cheq/core · verify: tsc-noemit + jest-core · check: TODO
   - inputs: key_order=invariant, extra_key=differs
 
 ## AC map
@@ -177,11 +180,11 @@ go BELOW the standing rows, never instead of one. -->
 | L-testshape | rule | `node tools/gates/lights/testshape.mjs` | hard | only declared test-file shapes; case names begin `S<n>_`; no `.only`, no snapshot, no `@ts-expect-error`/`as any` in a spec test |
 | L-testguard | rule | `node tools/gates/test-guard.mjs` | hard | every edit to a test file is declared per file |
 | L-deps | rule | `node tools/gates/lights/deps.mjs` | hard | no dependency enters any manifest without a `package:` line at column zero, a lock change and, for a runtime dependency, its vendor digest |
-| L-env-parity | test | `node tools/gates/lights/env-parity.mjs` | hard | the same `packages/core/test/**` agrees case by case under `--project core` (node) and `--project core-dom` (jsdom) |
+| L-env-parity | test | `node tools/gates/lights/env-parity.mjs` | hard | the same `packages/core/test/**` agrees case by case under `--selectProjects core` (node) and `--selectProjects core-dom` (jsdom) |
 | L-artifacts | rule | `node tools/gates/lights/artifacts.mjs` | hard | every run directory carries a `run.json` with head, tree state, argv and exit code, and no artifact is read by "newest match" |
 | L-generated | rule | `node tools/gates/lights/generated.mjs` | hard | every generated file re-generates byte-identical, and the failure prints the command that cures it |
-| L-visible | rule | `node tools/gates/lights/visible.mjs` | hard | nothing under `packages/`, `apps/`, `e2e/` is hidden from a gate by `.gitignore`, a tsconfig `exclude`, a vitest `exclude` or `.oxlintrc.jsonc` `ignorePatterns`, except what `visible.json` declares |
-| L-orphans | rule | `node tools/gates/lights/orphans.mjs` | hard | every tracked source file is reached by its project's `--listFiles`, and every test file matches exactly one vitest project |
+| L-visible | rule | `node tools/gates/lights/visible.mjs` | hard | nothing under `packages/`, `apps/`, `e2e/` is hidden from a gate behind one of the four doors — `gitignore`, `oxlint-ignorePatterns`, `tsconfig-exclude`, `jest-ignorePatterns` (the runner's `testPathIgnorePatterns` / `modulePathIgnorePatterns`) — except what `visible.json` declares |
+| L-orphans | rule | `node tools/gates/lights/orphans.mjs` | hard | every tracked source file is reached by its project's `--listFiles`, and every test file is matched by exactly one Jest project — the narrowed `testMatch` half, asked of the runner itself with `--listTests --json` |
 | L-homes | rule | `node tools/gates/lights/homes.mjs` | soft | edits to a shared file are homes a touched spec named |
 | L-stubkit | rule | `node tools/gates/lights/stubkit.mjs` | hard | a stub screen lives under `apps/web/src/stubs/`, carries `data-stub`, imports only `react` and `@cheq/stubkit`, and renders no literal array of domain objects |
 | L-browser | test | `node tools/gates/lights/browser.mjs` | soft | the Playwright lane is cannot-verify until `.ci/probe.json` reports `browser_probe: "pass"` |

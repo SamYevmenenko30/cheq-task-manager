@@ -13,13 +13,16 @@
 //
 // Zero dependencies: node:fs and node:path only.
 //
-// The project table below is a DECLARATION, measured against the configs on 2026-11-01:
-//   core      vitest.config.ts:20  root ./packages/core  node   include test/**/*.test.ts
-//   core-dom  vitest.config.ts:32  root ./packages/core  jsdom  include test/**/*.test.ts
-//   api       vitest.config.ts:41  root ./apps/api       node   include test/**/*.test.ts
-//   web       vitest.config.ts:47  root ./apps/web       jsdom  include test/**/*.test.{ts,tsx}
+// The project table below is a DECLARATION, measured against the configs on 2026-11-02:
+//   core      jest.config.mjs:87   rootDir ./packages/core  node   testMatch test/**/*.test.ts
+//   core-dom  jest.config.mjs:94   rootDir ./packages/core  jsdom  testMatch test/**/*.test.ts
+//   api       jest.config.mjs:101  rootDir ./apps/api       node   testMatch test/**/*.test.ts
+//   web       jest.config.mjs:108  rootDir ./apps/web       jsdom  testMatch test/**/*.test.{ts,tsx}
 //   e2e       playwright.config.ts:10  testDir ./e2e
-// This module does not parse vitest.config.ts — a gate does not parse the language it judges, and
+// The `testMatch` column drops the leading `<rootDir>/` the config writes, because the pattern is
+// resolved against that project's own rootDir and the token carries no information this table does
+// not already hold in its own `rootDir` column.
+// This module does not parse jest.config.mjs — a gate does not parse the language it judges, and
 // a second reader of the same fact is a second answer waiting to happen. L-orphans is the light
 // that compares this table against the config; if they ever disagree, that light is the one that
 // says so.
@@ -33,12 +36,12 @@ import { join, posix } from 'node:path';
 import { listCases } from './test-cases.mjs';
 import { classify, KINDS } from './test-file-patterns.mjs';
 
-/** Every runnable project, keyed by the name passed to `--project` (or the Playwright lane). */
+/** Every runnable project, keyed by the name passed to `--selectProjects` (or the Playwright lane). */
 export const PROJECTS = Object.freeze({
-  core: { kind: 'core', dir: 'packages/core/test', extensions: ['.test.ts'], runner: 'vitest', environment: 'node' },
-  'core-dom': { kind: 'core', dir: 'packages/core/test', extensions: ['.test.ts'], runner: 'vitest', environment: 'jsdom' },
-  api: { kind: 'api', dir: 'apps/api/test', extensions: ['.test.ts'], runner: 'vitest', environment: 'node' },
-  web: { kind: 'web', dir: 'apps/web/test', extensions: ['.test.ts', '.test.tsx'], runner: 'vitest', environment: 'jsdom' },
+  core: { kind: 'core', dir: 'packages/core/test', extensions: ['.test.ts'], runner: 'jest', environment: 'node' },
+  'core-dom': { kind: 'core', dir: 'packages/core/test', extensions: ['.test.ts'], runner: 'jest', environment: 'jsdom' },
+  api: { kind: 'api', dir: 'apps/api/test', extensions: ['.test.ts'], runner: 'jest', environment: 'node' },
+  web: { kind: 'web', dir: 'apps/web/test', extensions: ['.test.ts', '.test.tsx'], runner: 'jest', environment: 'jsdom' },
   e2e: { kind: 'e2e', dir: 'e2e', extensions: ['.spec.ts'], runner: 'playwright', environment: 'chromium' },
 });
 
@@ -100,7 +103,7 @@ function walk(root, rel, acc) {
  *                 unparsable: string[]}>,
  *   expectedByFile: Record<string, string[]>,
  *   fileCount: number, staticCount: number, resolvedCount: number, unresolvedCount: number,
- *   benchCount: number,
+ *   foreignCount: number,
  *   expected: number|null,
  *   state: 'n/a'|'has-cases',
  *   runnable: boolean,
@@ -131,7 +134,7 @@ export function projectState({ root = process.cwd(), project } = {}) {
   let staticCount = 0;
   let resolvedCount = 0;
   let unresolvedCount = 0;
-  let benchCount = 0;
+  let foreignCount = 0;
   let derivable = true;
   const expectedByFile = {};
 
@@ -165,7 +168,7 @@ export function projectState({ root = process.cwd(), project } = {}) {
     staticCount += listed.counts.sites;
     resolvedCount += listed.counts.resolved;
     unresolvedCount += listed.counts.unresolved;
-    benchCount += listed.benches.length;
+    foreignCount += listed.foreign.length;
     if (listed.expected === null) derivable = false;
     expectedByFile[repoPath] = listed.names;
     files.push({
@@ -194,8 +197,8 @@ export function projectState({ root = process.cwd(), project } = {}) {
         'CANNOT VERIFY (test-file-patterns.mjs names the cure for each)',
     );
   }
-  if (benchCount > 0) {
-    reasons.push(`${benchCount} bench() site(s) are present and are not cases (vitest run does not execute them)`);
+  if (foreignCount > 0) {
+    reasons.push(`${foreignCount} site(s) call a head this runner does not define (suite(/bench() — such a file fails to COLLECT, so its cases are not enumerable)`);
   }
 
   const state = staticCount === 0 ? 'n/a' : 'has-cases';
@@ -219,7 +222,7 @@ export function projectState({ root = process.cwd(), project } = {}) {
     staticCount,
     resolvedCount,
     unresolvedCount,
-    benchCount,
+    foreignCount,
     expected: derivable && state === 'has-cases' ? resolvedCount : null,
     state,
     runnable: state === 'has-cases',
@@ -259,7 +262,7 @@ export function artifactVerdict(state, artifact = {}) {
       status: 'n/a',
       detail:
         `${state.project}: no it( or test( call site under ${state.dir} — not launched, not green` +
-        (state.benchCount > 0 ? `; ${state.benchCount} bench() site(s) present` : ''),
+        (state.foreignCount > 0 ? `; ${state.foreignCount} undefined-head site(s) present` : ''),
     };
   }
   if (state.unclassified.length > 0) {

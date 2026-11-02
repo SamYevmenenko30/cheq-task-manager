@@ -13,29 +13,43 @@
  * Zero dependencies: `node:` builtins plus tools/gates/lib. A gate must run in a
  * worktree before an install has finished, which is exactly when it is needed.
  *
- * WHY ONE PLACE. Four facts about these command lines were MEASURED on
- * 2026-11-01, and each of them turns a hand-typed invocation into a silent lie.
- * A second caller that assembles its own argv gets one of them wrong:
+ * WHY ONE PLACE. Five facts about these command lines were MEASURED — the lint
+ * one on 2026-11-01, the rest on 2026-11-02 against jest 30 — and each of them
+ * turns a hand-typed invocation into a silent lie. A second caller that
+ * assembles its own argv gets one of them wrong:
  *
- *  1. `outputFile` inside a `projects` entry of vitest.config.ts is IGNORED
- *     (vitest.config.ts:3-7 records it) — the reports land in vitest's own
- *     `.vitest/`, so a per-kind artifact must be asked for on the COMMAND LINE.
- *  2. BOTH `--outputFile` keys must be DOTTED. The mixed form
- *     `--outputFile=A --outputFile.json=B` crashes vitest 5.0.5 with
- *     `TypeError: Cannot create property 'json' on string 'A'` BEFORE any test
- *     runs: exit 1 and NO artifact, which is indistinguishable from a failing
- *     suite to anyone reading the exit code
- *     (tools/gates/lib/vitest-json.mjs:10-23).
+ *  1. HALF THE ARTIFACT CONTRACT IS NOT IN THE ARGV. `jest-junit` is declared in
+ *     jest.config.mjs with NO `outputFile`, so it takes its path from the
+ *     environment variable `JEST_JUNIT_OUTPUT_FILE`. Measured without it: the
+ *     reporter writes `junit.xml` into the CWD — one file every run overwrites.
+ *     So `jestEnv` below is as load-bearing as `jestArgv`, and `runTool` records
+ *     what it put in the child's environment as `envExtra` in `run.json`, which
+ *     is what L-artifacts judges (REQUIRED_ENV there).
+ *  2. THE DOTTED `--outputFile` FORM IS SILENTLY IGNORED. `--outputFile.json=B`
+ *     was the PREVIOUS runner's required form; measured on this one, the parser
+ *     takes it without a word, runs every test and writes NO FILE. That is worse
+ *     than the crash it used to cause, because the run looks complete: exit code
+ *     from the tests, full console output, no artifact. One bare
+ *     `--outputFile=<path>` is the only legal form, and L-artifacts refuses the
+ *     dotted one.
  *  3. oxlint's type-aware rules do not run without `--type-aware`, and NOTHING
  *     says so — the output looks like a clean pass
  *     (tools/gates/lib/oxlint-json.mjs:11-16). The flag is therefore recorded in
  *     `run.json` as `typeAware`, so a light can assert the run was type-aware
  *     instead of assuming it.
- *  4. vitest does not typecheck AT ALL (esbuild strips types), so a missing
- *     export reaches the XML as a runtime error that is indistinguishable from
- *     an assertion. That is why the `test` lane runs BOTH halves — `tsc` and
- *     `vitest` — on every run of record, and why `tsc.<kind>.log` sits beside
- *     `<kind>.junit.xml` in the same run directory (TD-0004).
+ *  4. The runner does not typecheck AT ALL (`@swc/jest` strips types in Rust),
+ *     so a missing export reaches the XML as a runtime error that is
+ *     indistinguishable from an assertion. That is why the `test` lane runs BOTH
+ *     halves — `tsc` and `jest` — on every run of record, and why
+ *     `tsc.<kind>.log` sits beside `<kind>.junit.xml` in the same run directory
+ *     (TD-0004).
+ *  5. A `-t` FILTER THAT MATCHES NOTHING EXITS 0 AND CALLS ITSELF A SUCCESS.
+ *     Measured on the `core` project with a pattern matching no case: exit 0,
+ *     `success: true`, `numTotalTests: 17`, `numPassedTests: 0`,
+ *     `numPendingTests: 17`. No flag prevents it — `--passWithNoTests` governs
+ *     whether test FILES were found, and they were. The guard is therefore in
+ *     the READER: `readJestJson` refuses a report in which `passed + failed`
+ *     is zero, because a run that executed no case says nothing about the code.
  *
  * THE VERDICT COMES FROM THE ARTIFACT; THE EXIT CODE IS EVIDENCE. Nothing here
  * pipes the output of the tool it is judging: `spawnSync` with an argv ARRAY and
@@ -59,7 +73,7 @@
  *     dirt: a planted fixture and a staged new test are how the gates are
  *     probed);
  *   · a HEAD that does not resolve, or that differs from `--expect-head`;
- *   · a live watcher (`pgrep -fl 'vitest|vite|tsc --watch|tsx watch'`): a dev
+ *   · a live watcher (`pgrep -fl "$WATCHER_PATTERN"`): a dev
  *     server re-transforming the same files mid-run is shared state (rule 2);
  *   · a held `.ci/lock`. A lock whose pid is NOT alive is REPORTED and never
  *     removed silently (AGENTS.md rule 2) — the leftover of an aborted run and
@@ -90,7 +104,7 @@ import { headSha, isTreeClean, repoRoot } from './lib/git.mjs';
 import { artifactPath, makeRunDir, writeRunJson } from './lib/run-dir.mjs';
 import { readTsc } from './lib/tsc-log.mjs';
 import { isCollectionFailure, nameMatches, readJUnit, redReason } from './lib/junit-xml.mjs';
-import { crossCheck, readVitestJson } from './lib/vitest-json.mjs';
+import { crossCheck, readJestJson } from './lib/jest-json.mjs';
 import { readOxlint } from './lib/oxlint-json.mjs';
 import { artifactVerdict, projectState } from './lib/test-project.mjs';
 import { premise, readProbe } from './lib/probe.mjs';
@@ -100,13 +114,13 @@ import { premise, readProbe } from './lib/probe.mjs';
 /** The four lanes. `kinds` says what `--kind` means for each one. */
 export const LANES = Object.freeze({
   types: { kinds: 'required', halves: ['tsc'] },
-  test: { kinds: 'required', halves: ['tsc', 'vitest'] },
+  test: { kinds: 'required', halves: ['tsc', 'jest'] },
   lint: { kinds: 'refused', halves: ['oxlint'] },
   e2e: { kinds: 'implied', halves: ['playwright'] },
 });
 const LANE_NAMES = Object.keys(LANES);
 
-/** The kinds a vitest/tsc lane can be asked for. `e2e` is a lane, not a `--kind`. */
+/** The kinds a jest/tsc lane can be asked for. `e2e` is a lane, not a `--kind`. */
 const TYPED_KINDS = KINDS.filter((k) => k !== 'e2e');
 
 /** kind → the package whose tsconfig.json is the type artefact of record. */
@@ -137,6 +151,10 @@ export const CHILD_ENV = Object.freeze({
   // added a line to each log.
   NO_COLOR: '1',
   CI: '1',
+  // Jest's ESM support. Without it a `.test.ts` that imports anything dies with
+  // "Cannot use import statement outside a module", which reads like a broken
+  // source and is not one.
+  NODE_OPTIONS: '--experimental-vm-modules',
 });
 
 /**
@@ -169,22 +187,39 @@ const EXIT = Object.freeze({ green: 0, red: 1, 'cannot-verify': 2, 'n/a': 2 });
  * A refusal here is louder than "unknown flag" on purpose: the combination is
  * one where the artefact is not written, or where the assertion is rewritten by
  * the run that was supposed to judge it.
+ *
+ * EVERY PATTERN HERE IS A SPELLING, so every pattern was re-measured against
+ * `jest --help` on 2026-11-02 rather than carried over. Four of them had been
+ * written for the previous runner's spelling and matched nothing on this one,
+ * which is the quietest way for a forbidden-flag list to stop forbidding:
+ *
+ *   `--reporter`        → this runner's flag is PLURAL, `--reporters`. A caller
+ *                         passing it replaces the reporter list and drops
+ *                         jest-junit, so the JUnit artefact is simply never
+ *                         written and the gate reads a missing file.
+ *   `--update`          → this runner's long form is `--updateSnapshot`; only
+ *                         the `-u` short form was caught.
+ *   `--bail`            → has a `-b` short form here.
+ *   `--project`         → this runner's flag is `--selectProjects`.
+ *
+ * A pattern that matches nothing is indistinguishable from an allowed flag, so
+ * a new entry is written with the spelling read off `--help`, never from memory.
  */
 export const FORBIDDEN = Object.freeze([
   {
-    re: /^(--watch|-w)(=.*)?$/,
+    re: /^(--watch|--watchAll|-w)(=.*)?$/,
     why: 'a watch run never finishes and shares state with a dev session (rule 2) — it writes no final artefact, so there is nothing to read a verdict from',
   },
   {
     re: /^--passWithNoTests(=.*)?$/,
-    why: 'this wrapper always passes --passWithNoTests=false; a caller that re-sets it turns a run that matched nothing into a pass',
+    why: "this runner's default is already the strict one — a run that finds no test FILE exits 1 (measured: \"No tests found, exiting with code 1\") — so passing this flag can only loosen it and turn \"nothing to run\" into a pass",
   },
   {
-    re: /^(-u|--update)(=.*)?$/,
+    re: /^(-u|--updateSnapshot)(=.*)?$/,
     why: 'rewriting a snapshot rewrites the assertion — the run would then agree with whatever the code happened to do',
   },
   {
-    re: /^--bail(=.*)?$/,
+    re: /^(-b|--bail)(=.*)?$/,
     why: 'a bailed run stops early, so the artefact describes fewer cases than the sources declare and the count can never reconcile',
   },
   {
@@ -197,19 +232,19 @@ export const FORBIDDEN = Object.freeze([
   },
   {
     re: /^--retry(=.*)?$/,
-    why: 'this wrapper pins --retry=0; a failure that passes on a retry is not a green run',
+    why: "this runner has NO retry flag (measured against --help), so passing one is silently ignored and the caller is left believing retries were pinned. Refused loudly instead. The real hazard this cannot see is `jest.retryTimes()` in a setup file — a flag check reads the command line, not the code, and L-testguard is what guards a change to apps/web/test/setup.ts",
   },
   {
-    re: /^--reporter(=.*)?$/,
-    why: 'this wrapper owns the reporters, because the artefact names are what the gates read',
+    re: /^--reporters?(=.*)?$/,
+    why: 'this wrapper owns the reporters, because the artefact names are what the gates read: replacing the list drops jest-junit and the JUnit channel is then never written at all',
   },
   {
     re: /^--outputFile(\..*)?(=.*)?$/,
-    why: 'this wrapper owns the artefact paths: BOTH --outputFile.junit and --outputFile.json must be dotted, and the mixed form crashes vitest before any test runs and writes nothing (measured)',
+    why: 'this wrapper owns the artefact paths: the JSON channel comes from --outputFile and the JUnit one from JEST_JUNIT_OUTPUT_FILE in the environment, so a hand-passed path would send one artefact somewhere no gate reads',
   },
   {
-    re: /^--project(=.*)?$/,
-    why: 'the vitest project IS the kind: pass --kind <k> and this wrapper passes --project <k>, so a spec of another kind can never run under this label',
+    re: /^(--project|--selectProjects)(=.*)?$/,
+    why: 'the jest project IS the kind: pass --kind <k> and this wrapper passes --selectProjects <k>, so a spec of another kind can never run under this label',
   },
   {
     re: /^--type-aware$/,
@@ -230,7 +265,7 @@ const short = (sha) => (typeof sha === 'string' && sha.length >= 7 ? sha.slice(0
  * `cannot-verify` first so an unknown is never hidden behind a known red.
  * `n/a` ABOVE `green` because of a measured mistake in this file: with
  * `apps/api/test` holding no case site, the `test --kind api` lane ran a green
- * `tsc` half and an unlaunched vitest half, and a first version that ranked
+ * `tsc` half and an unlaunched jest half, and a first version that ranked
  * green highest printed `VERDICT=green` — which reads as "the api tests passed"
  * when no test ran at all. A lane one of whose halves made no claim is not a
  * green lane; the per-half verdicts stay in `run.json` → `steps[].verdict` and
@@ -288,18 +323,24 @@ function refuse(reason, cure) {
  * comes back, and the streams are captured so they can be written to the
  * artefact this wrapper named rather than to whatever the terminal happens to be.
  */
-function runTool(bin, args, { cwd }) {
+function runTool(bin, args, { cwd, env = {} }) {
   const startedAt = new Date().toISOString();
   const t0 = Date.now();
   const r = spawnSync(bin, args, {
     cwd,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, ...CHILD_ENV },
+    env: { ...process.env, ...CHILD_ENV, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   return {
     argv: [bin, ...args],
+    // Recorded beside argv because with Jest part of the artefact contract lives
+    // in the ENVIRONMENT: jest-junit takes its output path from
+    // JEST_JUNIT_OUTPUT_FILE, not from a flag. A run.json holding only argv
+    // could not say where this run was told to write, so L-artifacts could not
+    // check it.
+    envExtra: { ...env },
     exitCode: r.error ? null : (r.status ?? null),
     signal: r.signal ?? null,
     spawnError: r.error ? r.error.message : null,
@@ -333,19 +374,26 @@ function isAlive(pid) {
  * boundary.
  *
  * THE ANCHORS ARE THE WHOLE POINT, measured 2026-11-01. The obvious pattern —
- * the plain alternation `vitest|vite|tsc --watch|tsx watch` — is a SUBSTRING
- * match over every process's full command line, and it reported SEVENTEEN live
- * watchers on this machine: shells whose argv merely CONTAINED the word,
- * because the text they were running happened to mention `from 'vitest'`. A
- * wrapper that refuses on that number refuses every run of record for as long
- * as any such shell lives, and the refusal names a "watcher" nobody can find.
+ * a plain alternation of the executable names — is a SUBSTRING match over every
+ * process's full command line, and it reported SEVENTEEN live watchers on this
+ * machine: shells whose argv merely CONTAINED the word, because the text they
+ * were running happened to mention `from 'vitest'`, the runner's name at the
+ * time. A wrapper that refuses on that number refuses every run of record for as
+ * long as any such shell lives, and the refusal names a "watcher" nobody can
+ * find.
  *
- * Verified against planted decoys: `node …/.bin/vitest --watch`,
+ * That count is a DATED OBSERVATION, not current state: re-run on 2026-11-02 the
+ * same naive alternation returned 0, simply because no process's argv mentioned
+ * those words at that moment. The hazard is the substring match, which does not
+ * go away between measurements — only its visibility does, which is exactly why
+ * the anchors stay.
+ *
+ * Verified against planted decoys: `node …/.bin/jest --watch`,
  * `node …/.bin/vite`, `…/.bin/tsc --watch -p tsconfig.json` and
  * `node …/.bin/tsx watch src/index.ts` all match; a zsh whose command line
- * merely mentions vitest does not.
+ * merely mentions the runner's name does not.
  */
-export const WATCHER_PATTERN = '(^|/)(vitest|vite)( |$)|(^|/)tsc .*--watch|(^|/)tsx .*watch';
+export const WATCHER_PATTERN = '(^|/)(jest|vite)( |$)|(^|/)tsc .*--watch|(^|/)tsx .*watch|jest .*--watch';
 
 /** argv[0] basenames that are never a watcher themselves: the watcher would be
  * the shell's CHILD, which pgrep reports on its own line. */
@@ -363,10 +411,9 @@ const SHELLS = Object.freeze(new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh'
  * for the process table, so it lives with the gate that acts on it.
  */
 export function liveWatchers() {
-  const r = spawnSync('pgrep', ['-fl', WATCHER_PATTERN], {
-    encoding: 'utf8',
-    env: { ...process.env, ...CHILD_ENV },
-  });
+  // No CHILD_ENV here, and no `env` parameter: this spawns `pgrep` to read the PROCESS TABLE, not
+  // a tool whose behaviour the environment steers. CHILD_ENV belongs to `runTool`.
+  const r = spawnSync('pgrep', ['-fl', WATCHER_PATTERN], { encoding: 'utf8' });
   if (r.error) return { ok: false, found: [], reason: `pgrep did not run: ${r.error.message}`, pattern: WATCHER_PATTERN };
   if (r.status !== 0 && r.status !== 1)
     return { ok: false, found: [], reason: `pgrep -fl exited ${String(r.status)}: ${(r.stderr ?? '').trim()}`, pattern: WATCHER_PATTERN };
@@ -542,7 +589,7 @@ export function parseArgs(argv) {
       return {
         error:
           opts.kind === 'e2e'
-            ? 'kind e2e has no tsconfig and no vitest project: use the e2e lane (node tools/gates/run.mjs e2e)'
+            ? 'kind e2e has no tsconfig and no jest project: use the e2e lane (node tools/gates/run.mjs e2e)'
             : `unknown kind ${JSON.stringify(opts.kind)} — one of ${[...TYPED_KINDS, 'all'].join(', ')}`,
       };
   }
@@ -564,7 +611,7 @@ export function parseArgs(argv) {
 const HELP = `node tools/gates/run.mjs <lane> [options] — the wrapper of every run of record
 
   types --kind <${[...TYPED_KINDS, 'all'].join('|')}>   tsc --noEmit per package  -> tsc.<kind>.log
-  test  --kind <${[...TYPED_KINDS, 'all'].join('|')}>   tsc + vitest              -> tsc.<kind>.log, <kind>.junit.xml, <kind>.json
+  test  --kind <${[...TYPED_KINDS, 'all'].join('|')}>   tsc + jest                -> tsc.<kind>.log, <kind>.junit.xml, <kind>.json
   lint                              oxlint --type-aware       -> oxlint.json
   e2e                               playwright                -> e2e.junit.xml, e2e.json
 
@@ -592,32 +639,42 @@ export function typesArgv(kind) {
 }
 
 /**
- * The vitest argv. Every flag here is load-bearing:
- *   --project <kind>            a spec of another kind cannot run under this label
- *   --reporter=junit  + --outputFile.junit=<abs>
- *   --reporter=json   + --outputFile.json=<abs>    both DOTTED (header fact 2)
- *   --retry=0                   a failure that passes on a retry is not green
- *   --no-file-parallelism       the artefacts of one run describe one schedule
- *   --passWithNoTests=false     a run that matched nothing fails loudly
+ * The jest argv. Every flag is load-bearing, and TWO facts about Jest shape it:
+ *
+ *   --selectProjects <kind>  a spec of another kind cannot run under this label
+ *                            (jest.config.mjs names the projects; the project
+ *                            name IS the kind, so there is no registry between
+ *                            the path and the artefact)
+ *   --json + --outputFile    the second channel. Jest's JSON carries the same
+ *                            field names the reader already knows
+ *                            (numTotalTests / numPassedTests / numFailedTests /
+ *                            numPendingTests), so lib/jest-json.mjs reads it
+ *                            unchanged — the FORMAT is what that module knows,
+ *                            not the producer.
+ *   --ci                     a missing snapshot is a failure, never written
+ *   --runInBand              one schedule per run, as --no-file-parallelism was
+ *
+ * NOT passed, and their ABSENCE is the contract:
+ *   there is no --retry: Jest does not retry unless a test asks, so nothing has
+ *   to switch it off;
+ *   --passWithNoTests is NOT passed, because Jest's default is already to exit
+ *   non-zero when no test matched. Passing it would be the dangerous spelling.
+ *
+ * The JUnit path is NOT here. jest-junit takes it from JEST_JUNIT_OUTPUT_FILE,
+ * so it travels in the environment and is recorded in run.json as `envExtra`.
  */
-export function vitestArgv(kind, { junit, json, filter }) {
-  const args = [
-    'run',
-    '--project',
-    kind,
-    '--reporter=junit',
-    `--outputFile.junit=${junit}`,
-    '--reporter=json',
-    `--outputFile.json=${json}`,
-    '--retry=0',
-    '--no-file-parallelism',
-    '--passWithNoTests=false',
-  ];
+export function jestArgv(kind, { json, filter }) {
+  const args = ['--selectProjects', kind, '--ci', '--runInBand', '--json', `--outputFile=${json}`];
   // --filter is passed through as the runner's own name pattern. It is allowed
   // ONLY because the count is reconciled afterwards against the declared names
   // the same pattern matches; see runTest.
-  if (filter !== null) args.push(`--testNamePattern=${filter}`);
+  if (filter !== null) args.push('-t', filter);
   return args;
+}
+
+/** The part of the artefact contract that travels in the environment, not argv. */
+export function jestEnv({ junit }) {
+  return { JEST_JUNIT_OUTPUT_FILE: junit };
 }
 
 /** `oxlint --type-aware --format=json` → oxlint.json (stdout IS the artefact). */
@@ -721,8 +778,8 @@ export function main() {
           continue;
         }
         plan.push({ half, kind: k, bin: 'tsc', args: typesArgv(k), log: `tsc.${String(k)}.log` });
-      } else if (half === 'vitest') {
-        plan.push({ half, kind: k, bin: 'vitest', junit: `${String(k)}.junit.xml`, json: `${String(k)}.json` });
+      } else if (half === 'jest') {
+        plan.push({ half, kind: k, bin: 'jest', junit: `${String(k)}.junit.xml`, json: `${String(k)}.json` });
       } else if (half === 'oxlint') {
         plan.push({ half, kind: null, bin: 'oxlint', args: lintArgv(), log: 'oxlint.json' });
       } else {
@@ -751,8 +808,8 @@ export function main() {
         continue;
       }
       const args =
-        step.half === 'vitest'
-          ? vitestArgv(step.kind, { junit: '<run-dir>/' + step.junit, json: '<run-dir>/' + step.json, filter })
+        step.half === 'jest'
+          ? jestArgv(step.kind, { json: '<run-dir>/' + step.json, filter })
           : step.args;
       say(`[run] dry ${step.half}: ${[step.binPath, ...args].join(' ')}`);
     }
@@ -825,6 +882,11 @@ export function main() {
           half: step.half,
           kind: step.kind,
           argv: r.argv,
+          // Recorded for every half, not just the one that needs it: these two
+          // tools take nothing from the environment, and `{}` SAYS that, where an
+          // absent field would leave a reader unable to tell "nothing was added"
+          // from "nobody wrote it down".
+          envExtra: r.envExtra ?? null,
           exitCode: r.exitCode,
           signal: r.signal,
           spawnError: r.spawnError,
@@ -839,7 +901,7 @@ export function main() {
         continue;
       }
 
-      if (step.half === 'vitest') {
+      if (step.half === 'jest') {
         const t = runTest(root, dir, step, filter);
         verdicts.push(t.verdict);
         tests += t.tests;
@@ -905,7 +967,7 @@ export function main() {
 }
 
 /**
- * The vitest half: two channels from one run, cross-checked, plus the
+ * The jest half: two channels from one run, cross-checked, plus the
  * sources-vs-artefact reconciliation that decides `n/a` from the TREE and
  * CANNOT VERIFY from the artefact (rule 3, tools/gates/lib/test-project.mjs).
  */
@@ -921,14 +983,14 @@ function runTest(root, dir, step, filter) {
   // to find", which is the confusion that lets an empty suite read as a pass.
   if (state.state === 'n/a') {
     const av = artifactVerdict(state, { present: false });
-    lines.push(`[run] vitest not launched — ${av.detail}`);
+    lines.push(`[run] jest not launched — ${av.detail}`);
     return {
       verdict: 'n/a',
       tests: 0,
       errors: 0,
       lines,
       reasons: [`${kind}: n/a — ${av.detail}`],
-      record: { half: 'vitest', kind, launched: false, verdict: 'n/a', reason: av.detail },
+      record: { half: 'jest', kind, launched: false, verdict: 'n/a', reason: av.detail },
     };
   }
 
@@ -950,27 +1012,27 @@ function runTest(root, dir, step, filter) {
         errors: 0,
         lines,
         reasons: [`${kind}: --filter matched no declared case name`],
-        record: { half: 'vitest', kind, launched: false, verdict: 'cannot-verify', reason: 'filter matched no declared case name' },
+        record: { half: 'jest', kind, launched: false, verdict: 'cannot-verify', reason: 'filter matched no declared case name' },
       };
     }
   }
 
   const junitPath = artifactPath(dir, step.junit);
   const jsonPath = artifactPath(dir, step.json);
-  const args = vitestArgv(kind, { junit: junitPath, json: jsonPath, filter });
-  const r = runTool(step.binPath, args, { cwd: root });
+  const args = jestArgv(kind, { json: jsonPath, filter });
+  const r = runTool(step.binPath, args, { cwd: root, env: jestEnv({ junit: junitPath }) });
   writeFileSync(artifactPath(dir, `${kind}.console.log`), r.stdout + (r.stderr.trim().length ? `--- stderr ---\n${r.stderr}` : ''), 'utf8');
   if (r.stdout.trim().length) process.stdout.write(r.stdout.endsWith('\n') ? r.stdout : `${r.stdout}\n`);
 
   const junit = readJUnit(junitPath);
-  const json = readVitestJson(jsonPath);
+  const json = readJestJson(jsonPath);
   const cross = crossCheck(junit, json);
 
   const tests = junit.ok ? (junit.totals.tests ?? 0) : 0;
   const errors = junit.ok ? (junit.totals.failures ?? 0) + (junit.totals.errors ?? 0) : 0;
 
   lines.push(
-    `[run] vitest exit=${String(r.exitCode)} artefact=${step.junit} tests=${String(tests)} failures=${String(junit.ok ? junit.totals.failures : '-')} skipped=${String(junit.ok ? junit.totals.skipped : '-')}`,
+    `[run] jest exit=${String(r.exitCode)} artefact=${step.junit} tests=${String(tests)} failures=${String(junit.ok ? junit.totals.failures : '-')} skipped=${String(junit.ok ? junit.totals.skipped : '-')}`,
   );
 
   if (!junit.ok) {
@@ -981,7 +1043,18 @@ function runTest(root, dir, step, filter) {
       errors,
       lines,
       reasons: [`${kind}: ${String(junit.reason)}`],
-      record: { half: 'vitest', kind, argv: r.argv, exitCode: r.exitCode, spawnError: r.spawnError, durationMs: r.durationMs, artefact: step.junit, verdict: 'cannot-verify', reason: junit.reason },
+      record: {
+        half: 'jest',
+        kind,
+        argv: r.argv,
+        envExtra: r.envExtra ?? null,
+        exitCode: r.exitCode,
+        spawnError: r.spawnError,
+        durationMs: r.durationMs,
+        artefact: step.junit,
+        verdict: 'cannot-verify',
+        reason: junit.reason,
+      },
     };
   }
 
@@ -997,7 +1070,7 @@ function runTest(root, dir, step, filter) {
   // pattern matched. Those are judged; the rest make no claim at all.
   //
   // A collection failure's synthetic `<testcase>` is EXCLUDED from both sets.
-  // MEASURED by planting an import of a path nobody wrote: vitest emits one
+  // MEASURED by planting an import of a path nobody wrote: the runner emits one
   // synthetic case for the whole file with `status: failed`, and the counts then
   // coincide with the sources exactly (17 real cases + 1 synthetic = 18, and the
   // sources enumerate 18 because the planted file declares one case). A first
@@ -1027,9 +1100,15 @@ function runTest(root, dir, step, filter) {
   }
 
   const record = {
-    half: 'vitest',
+    half: 'jest',
     kind,
     argv: r.argv,
+    // The JUnit path is NOT in the argv — jest-junit takes it from the
+    // environment — so a record carrying only `argv` does not say where this run
+    // was told to write half its artefacts. L-artifacts asserts this field
+    // (REQUIRED_ENV there); omitting it made every run of record unjudgeable on
+    // exactly the half that is hardest to notice missing.
+    envExtra: r.envExtra ?? null,
     exitCode: r.exitCode,
     signal: r.signal,
     spawnError: r.spawnError,

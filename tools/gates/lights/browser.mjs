@@ -67,7 +67,7 @@
  *
  * TWO CHANNELS, AND WHO READS WHICH. The JUnit XML is the artifact of record and
  * is read by `readJUnit` + `filesIn` from `../lib/junit-xml.mjs`. The JSON is the
- * second channel and is read HERE, because `readVitestJson` refuses it by
+ * second channel and is read HERE, because `readJestJson` refuses it by
  * design: Playwright's JSON report has no `testResults` array — it is a
  * `{ suites: [{ file, specs, suites }] }` tree. That shape is UNVERIFIED on this
  * machine (the lane has never run), so `e2eJsonFiles` accepts both shapes, says
@@ -84,7 +84,7 @@ import { premise, readProbe } from '../lib/probe.mjs';
 import { RUNS_ROOT } from '../lib/run-dir.mjs';
 import { TEST_DIR, classify } from '../lib/test-file-patterns.mjs';
 import { projectState } from '../lib/test-project.mjs';
-import { readVitestJson } from '../lib/vitest-json.mjs';
+import { readJestJson } from '../lib/jest-json.mjs';
 import { baseRev, repoRoot } from '../lib/git.mjs';
 import { normalizeResult, normRel, readPremises, relPosix, scanSource, under } from './_shared.mjs';
 
@@ -175,14 +175,14 @@ export function declaredArtifactPaths(root, rel = CONFIG_REL) {
 /**
  * The test FILES a JSON e2e report is about. → { shape, files, problems }
  *
- * `shape` is `'playwright'`, `'vitest'` or `'unknown'`, and `'unknown'` is never
+ * `shape` is `'playwright'`, `'jest'` or `'unknown'`, and `'unknown'` is never
  * reported as an empty file list: a reader that cannot recognise a report must
  * say so, or "no foreign file" would mean "I read nothing".
  *
  * Playwright's shape is UNVERIFIED here — the lane has never run on this machine
  * (TD-0001) — and is taken from its documented JSON reporter: a tree of
- * `suites`, each carrying `file` plus nested `suites`/`specs`. The vitest shape
- * IS measured, and `readVitestJson` is the reader for it, so that branch adds no
+ * `suites`, each carrying `file` plus nested `suites`/`specs`. The jest shape
+ * IS measured, and `readJestJson` is the reader for it, so that branch adds no
  * second opinion.
  */
 export function e2eJsonFiles(path) {
@@ -201,9 +201,9 @@ export function e2eJsonFiles(path) {
   }
 
   if (Array.isArray(j?.testResults)) {
-    const read = readVitestJson(path);
+    const read = readJestJson(path);
     return {
-      shape: 'vitest',
+      shape: 'jest',
       files: read.files?.map((f) => String(f.name)) ?? [],
       problems: read.ok ? [] : [`${path}: ${String(read.reason)}`],
     };
@@ -224,7 +224,7 @@ export function e2eJsonFiles(path) {
     shape: 'unknown',
     files: [],
     problems: [
-      `${path}: neither a Vitest report (no "testResults" array) nor a Playwright report (no "suites" array) — the file list is UNKNOWN, not empty, so no claim is made about which files this run collected`,
+      `${path}: neither a jest report (no "testResults" array) nor a Playwright report (no "suites" array) — the file list is UNKNOWN, not empty, so no claim is made about which files this run collected`,
     ],
   };
 }
@@ -236,7 +236,7 @@ export function e2eJsonFiles(path) {
  * into a sentence.
  *
  * THREE SPELLINGS, because the reporters do not agree and only one of them is
- * measured. Vitest's JSON `file` is ABSOLUTE (measured, scratchpad §10) and is
+ * measured. The runner's JSON `name` per file is ABSOLUTE (measured) and is
  * relativised against the repository root. The JUnit `classname` is relative to
  * the repository root (measured, §11). Playwright's JSON `file` is documented as
  * relative to the config's own root, which for `testDir: './e2e'` would make a

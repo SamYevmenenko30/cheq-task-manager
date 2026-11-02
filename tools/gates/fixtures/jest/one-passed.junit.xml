@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="1" failures="0" errors="0" time="0.302">
+  <testsuite name="packages/core/test/__cap/one.test.ts" errors="0" failures="0" skipped="0" timestamp="2026-11-01T23:10:16" time="0.155" tests="1">
+    <testcase classname="packages/core/test/__cap/one.test.ts" name="the captured green case &gt; names the package" time="0.006" file="packages/core/test/__cap/one.test.ts">
+    </testcase>
+  </testsuite>
+</testsuites>

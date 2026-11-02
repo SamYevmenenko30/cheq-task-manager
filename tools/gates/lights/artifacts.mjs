@@ -33,18 +33,27 @@
  *
  * This is the trap this light was nearly written into. `run.json.argv` is
  * `process.argv.slice(2)` of the WRAPPER (tools/gates/run.mjs:883) — it reads
- * `["test","--kind","core","--label","x"]`. Asserting `--retry=0` against that
+ * `["test","--kind","core","--label","x"]`. Asserting `--ci` against that
  * field would fail on every correct run, and "fixing" it by loosening the
  * assertion would have left the real flag unchecked forever.
  *
  * The judged tool's own argv is `steps[].argv` (`[bin, ...args]`, written by
  * `runTool` at tools/gates/run.mjs:302), one entry per half, with `half` naming
- * which tool it was: `tsc` | `oxlint` | `vitest` | `playwright`. So this light
+ * which tool it was: `tsc` | `oxlint` | `jest` | `playwright`. So this light
  * reads `steps[]` and uses `half` as the classification — the writer's own word
  * — while still deriving a classification from the argv's program name and
- * reporting a DISAGREEMENT between the two. A step whose `half` says `vitest`
+ * reporting a DISAGREEMENT between the two. A step whose `half` says `jest`
  * over an argv that spawned something else is a record describing a run that did
  * not happen.
+ *
+ * HALF THE ARTIFACT CONTRACT IS NOT IN THE ARGV. The runner takes its JUnit path
+ * from the environment (`JEST_JUNIT_OUTPUT_FILE`), because the reporter is
+ * declared in jest.config.mjs without an `outputFile` — see that file's header.
+ * So `runTool` records what it added to the child's environment as `envExtra`
+ * (tools/gates/run.mjs:312) and this light judges that field exactly as it judges
+ * the argv. Without it the reporter writes `junit.xml` into the cwd — MEASURED
+ * 2026-11-02 — which is one file every run overwrites, the defect this light
+ * exists to refuse.
  *
  * A step may legitimately carry NO argv: `{ half, kind, skipped }` for a step the
  * wrapper refused to launch, and `{ half, kind, launched: false, … }` for a
@@ -134,9 +143,22 @@ export const MIRROR_PROBLEM = STAMP_RE.test(stampOf(new Date(0)))
  * "add --retry=0" without the reason reads as ceremony. Each one is a measured
  * silent pass; see the header. */
 export const REQUIRED_FLAGS = Object.freeze({
-  vitest: [
-    { re: /^--passWithNoTests=false$/, flag: '--passWithNoTests=false', why: 'without it a run whose filter matched nothing exits 0 and writes a well-formed report, so an empty lane reads as a green one' },
-    { re: /^--retry=0$/, flag: '--retry=0', why: 'a failure that passes on a retry is not a green run, and the report keeps only the last attempt' },
+  jest: [
+    {
+      re: /^--ci$/,
+      flag: '--ci',
+      why: 'without it a MISSING snapshot is WRITTEN and the case PASSES — measured 2026-11-02: "1 snapshot written", exit 0 — so the first run of a snapshot assertion is green by construction',
+    },
+    {
+      re: /^--json$/,
+      flag: '--json',
+      why: 'the second channel exists only when it is asked for; without it the run has one channel and there is nothing for crossCheck to disagree with',
+    },
+    {
+      re: /^(-i|--runInBand)$/,
+      flag: '--runInBand',
+      why: 'one schedule per run — it is what replaced the previous runner\'s --no-file-parallelism, and without it two test files interleave through shared state, so the verdict is not reproducible. tools/gates/run.mjs already passes it; this is what keeps it asserted in the record rather than merely pinned in the wrapper',
+    },
   ],
   oxlint: [
     { re: /^--type-aware$/, flag: '--type-aware', why: 'without it oxlint\'s type-aware rules DO NOT RUN and nothing says so — the output looks like a successful lint (port-plan-delta Д7)' },
@@ -147,12 +169,26 @@ export const REQUIRED_FLAGS = Object.freeze({
 
 /** `half` → the program basename its argv must start with, so the record's own
  * word can be checked against what it actually spawned. */
-export const PROGRAM_OF_HALF = Object.freeze({ vitest: 'vitest', oxlint: 'oxlint', tsc: 'tsc', playwright: 'playwright' });
+export const PROGRAM_OF_HALF = Object.freeze({ jest: 'jest', oxlint: 'oxlint', tsc: 'tsc', playwright: 'playwright' });
+
+/** `half` → the environment variables its record must carry, with WHY. The
+ * runner's JUnit path lives here and not in the argv — see the header. */
+export const REQUIRED_ENV = Object.freeze({
+  jest: [
+    {
+      name: 'JEST_JUNIT_OUTPUT_FILE',
+      why: "the JUnit reporter is declared in jest.config.mjs with no outputFile, so this variable is the ONLY thing that steers the artifact into this run's own directory; without it the reporter writes junit.xml into the cwd (measured 2026-11-02), which is one file every run overwrites",
+    },
+  ],
+  oxlint: [],
+  tsc: [],
+  playwright: [],
+});
 
 /** The committed files that WRITE artifacts, scanned for a fixed `.ci/runs/<x>`
  * literal. Not the whole tree — see the header. */
 export const WRITER_ROOTS = Object.freeze(['tools/gates']);
-export const WRITER_FILES = Object.freeze(['playwright.config.ts', 'vitest.config.ts']);
+export const WRITER_FILES = Object.freeze(['playwright.config.ts', 'jest.config.mjs']);
 const WRITER_EXTS = Object.freeze(['.mjs', '.ts']);
 
 const SHOWN = 8;
@@ -201,11 +237,13 @@ export function listRuns(root) {
 /**
  * The output paths one argv asks for. → [{ token, path }]
  *
- * Three forms, all of them in use in this repository: `--outputFile=<p>`,
- * `--outputFile.<reporter>=<p>` (the DOTTED form vitest requires — the mixed
- * form crashes it before any test runs and writes nothing, measured) and
- * `-o <p>`. A relative path is resolved against the repository root, which is
- * the cwd every step is spawned with (tools/gates/run.mjs:961).
+ * Three forms are recognised, but only two are legal here: `--outputFile=<p>`
+ * and `-o <p>`. The DOTTED `--outputFile.<reporter>=<p>` is the PREVIOUS runner's
+ * form and is recognised ONLY so it can be refused — measured 2026-11-02: this
+ * runner's parser accepts it without complaint, runs the tests and writes NO
+ * FILE, which is worse than a crash because the run looks complete. A relative
+ * path is resolved against the repository root, which is the cwd every step is
+ * spawned with (tools/gates/run.mjs:961).
  */
 export function outputPaths(argv) {
   const out = [];
@@ -264,14 +302,26 @@ export function judgeStep(root, dirRel, step, where) {
       problems.push(`${where}: the ${half} argv does not carry ${req.flag} — ${req.why}. Cure: the wrapper that writes this argv is tools/gates/run.mjs; the flag belongs there, not at a call site`);
   }
 
-  // The mixed --outputFile form: measured to crash vitest 5.0.5 before any test
-  // runs, writing NOTHING. A run recorded with it produced no artifact at all.
-  if (half === 'vitest') {
-    const bare = argv.filter((a) => a.startsWith('--outputFile='));
+  // The DOTTED --outputFile form is the previous runner's. MEASURED 2026-11-02:
+  // this runner's parser takes `--outputFile.json=<p>` without a word, runs every
+  // test and writes no file at all, so a record carrying it describes a complete
+  // run with nothing to read it from.
+  if (half === 'jest') {
     const dotted = argv.filter((a) => /^--outputFile\.[A-Za-z0-9_-]+=/.test(a));
-    if (bare.length > 0 && dotted.length > 0)
+    if (dotted.length > 0)
       problems.push(
-        `${where}: the vitest argv mixes ${list(bare)} with ${list(dotted)} — BOTH --outputFile keys must be dotted; the mixed form crashes vitest before any test runs and writes no artifact at all (measured), so a run recorded this way has nothing to be read from`,
+        `${where}: the jest argv carries ${list(dotted)} — the dotted --outputFile form belongs to the previous runner; this one accepts it silently, runs the tests and writes NO file (measured), so the run has no artifact to be judged from. Cure: one bare --outputFile=<path> in tools/gates/run.mjs`,
+      );
+  }
+
+  // The environment half of the contract — see the header.
+  const envExtra = step?.envExtra;
+  for (const req of REQUIRED_ENV[half] ?? []) {
+    const have =
+      envExtra !== null && typeof envExtra === 'object' && typeof envExtra[req.name] === 'string' && envExtra[req.name] !== '';
+    if (!have)
+      problems.push(
+        `${where}: the ${half} record does not carry envExtra.${req.name} — ${req.why}. Cure: the wrapper that spawns this half is tools/gates/run.mjs; the variable belongs in its env, not at a call site`,
       );
   }
 

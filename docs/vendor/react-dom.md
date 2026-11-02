@@ -64,8 +64,8 @@ Every signature below is from `@types/react-dom/client.d.ts`.
 
 The chained spelling hides it, so it is written out. `createRoot(host)` allocates a root attached to
 `host` and draws nothing; `root.render(children)` is a separate call that draws, and it may be called
-again on the same root. Measured 2026-11-01 in a temporary `apps/web/test/` probe (jsdom, `tsc` exit 0,
-`vitest run --project web` 1 passed, deleted in the same command):
+again on the same root. Measured 2026-11-01 in a temporary `apps/web/test/` probe, under the runner of the day (jsdom,
+`tsc` exit 0, the `web` project 1 passed, deleted in the same command):
 
 - `root.render(<StrictMode><Probe tag="a"/></StrictMode>)`, then
   `root.render(<StrictMode><Probe tag="b"/></StrictMode>)` on the **same** root: the second call
@@ -105,5 +105,5 @@ measurement.
 - A second `createRoot` on an already-rooted container, and `render` after `unmount`.
 - Whether `@types/react-dom` 19.3.0 describes `react-dom` 19.3.1 correctly. Separate packages,
   separate version lines, nothing compares them, and `skipLibCheck: true` (`tsconfig.base.json:26`,
-  [TD-0004](../tech-debt/TD-0004-vitest-does-not-typecheck.md)) would hide an error inside the
+  [TD-0004](../tech-debt/TD-0004-runner-does-not-typecheck.md)) would hide an error inside the
   declaration file anyway.

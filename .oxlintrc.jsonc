@@ -27,7 +27,7 @@
 
   "$schema": "./node_modules/oxlint/configuration_schema.json",
 
-  "plugins": ["typescript", "react", "react-perf", "import", "unicorn", "oxc", "vitest"],
+  "plugins": ["typescript", "react", "react-perf", "import", "unicorn", "oxc", "jest"],
 
   "categories": {
     "correctness": "error",
@@ -64,7 +64,6 @@
     "**/playwright-report/**",
     "**/test-results/**",
     ".ci/**",
-    ".vitest/**",
   ],
 
   "overrides": [

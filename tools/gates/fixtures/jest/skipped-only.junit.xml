@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="1" failures="0" errors="0" time="0.268">
+  <testsuite name="packages/core/test/__cap/skipped.test.ts" errors="0" failures="0" skipped="1" timestamp="2026-11-01T23:10:18" time="0.138" tests="1">
+    <testcase classname="packages/core/test/__cap/skipped.test.ts" name="the captured skipped cases &gt; is switched off" time="0" file="packages/core/test/__cap/skipped.test.ts">
+      <skipped/>
+    </testcase>
+    <testcase classname="packages/core/test/__cap/skipped.test.ts" name="the captured skipped cases &gt; is not written yet" time="0" file="packages/core/test/__cap/skipped.test.ts">
+    </testcase>
+  </testsuite>
+</testsuites>

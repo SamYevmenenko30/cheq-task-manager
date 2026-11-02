@@ -38,14 +38,18 @@ human's review — never its replacement, never an approval.
 3. Every `green: S<n> via <runner> <path>` trailer. OPEN the artifact at `<path>`: the S-ids named
    must be test NAMES in it, `tests` ≠ 0, `failures` = 0, `errors` = 0, `skipped` = 0, and the runner
    must be the one the assertion's `kind` allows (docs/knowledge/testing.md, "kind → runner →
-   command"). A `<failure type="TypeError">… is not a function`, a `type="Error">Cannot find
-   module …`, or a testcase whose `name` equals a file path is PENDING IMPLEMENTATION presented as a
-   result. A trailer citing an exit code, a dev server, a browser or a screenshot instead of a file
-   is a finding. `ready` prints `(artifact present)`/`(ARTIFACT MISSING)` — read it, then open the
-   file anyway.
+   command"). A `<failure type="TypeError">… is not a function` or a
+   `type="ReferenceError">… is not defined` is PENDING IMPLEMENTATION presented as a result. Open the
+   run's `<kind>.json` too: a report whose `passed + failed` is zero is a run that executed no case,
+   and it is the shape a `-t` filter matching nothing leaves behind (exit 0, `success: true`) — no
+   flag prevents it, so the trailer is the only place it gets caught. A trailer citing an exit code,
+   a dev server, a browser or a screenshot instead of a file is a finding. `ready` prints
+   `(artifact present)`/`(ARTIFACT MISSING)` — read it, then open the file anyway.
 4. Test edits: an established test modified without its `spec-conflict:`/`spec-change:` line
    (`test-guard`); a branch-added test that mirrors the implementation instead of the spec; an `it()`
-   that cannot fail — no `expect`, or an `expect` inside a promise nobody awaits; a case name not
+   that cannot fail — no `expect`, or an `expect` inside a promise nobody awaits; **`.failing`,
+   which inverts the verdict and is green exactly when its assertion fails** (`L-testshape` refuses
+   it in a spec test — tools/gates/lights/testshape.mjs:157-165); a case name not
    beginning `S<n>_`; `.only`; a snapshot standing in for an assertion; `@ts-expect-error`,
    `@ts-nocheck` or `as any` in a spec test — `L-testshape` token-scans for the last three, because
    `typescript/ban-ts-comment` was measured NOT to fire on a described `@ts-expect-error`, so a
@@ -53,7 +57,10 @@ human's review — never its replacement, never an approval.
 5. Suppression and hiding: a file-level `// oxlint-disable <rule>` naming a boundary rule — only the
    file-level form suppresses a type-aware rule, so a `-disable-next-line` suppresses nothing and
    still tells you someone TRIED; a new entry in `ignorePatterns` (.oxlintrc.jsonc:60-68), a
-   tsconfig or vitest `exclude`, or a `.gitignore` line hiding tracked source — `L-visible`'s doors.
+   tsconfig `exclude`, a new `testPathIgnorePatterns` / `modulePathIgnorePatterns` in
+   `jest.config.mjs` (`L-visible`'s fourth door, `jest-ignorePatterns`), or a `.gitignore` line
+   hiding tracked source — `L-visible`'s doors. A NARROWED `testMatch` is not that door: it hides a
+   test file by never claiming it, which is `L-orphans`' finding, so check both.
 6. Dependencies: any `dependencies`/`devDependencies`/`peerDependencies` change without a
    `package: <name> — <why>` line at column zero in the range; a runtime dependency with no
    `docs/vendor/<name>.md` in the same range; a `pnpm-lock.yaml` drift that touched no manifest; a

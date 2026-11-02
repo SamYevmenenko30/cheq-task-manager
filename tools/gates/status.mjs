@@ -74,7 +74,7 @@ const TOOLS = Object.freeze([
   { key: 'TSC', pkg: 'typescript', bin: 'tsc' },
   { key: 'OXLINT', pkg: 'oxlint', bin: 'oxlint' },
   { key: 'TSGOLINT', pkg: 'oxlint-tsgolint', bin: 'tsgolint' },
-  { key: 'VITEST', pkg: 'vitest', bin: 'vitest' },
+  { key: 'JEST', pkg: 'jest', bin: 'jest' },
 ]);
 
 /** The worktree every base run of red-check uses, beside the repository. */

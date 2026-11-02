@@ -4,11 +4,11 @@
 with the REAL dependencies read from that package.json — never a wish list. A new package gets one in
 the same commit as its package.json (AGENTS.md → "How to add a package"). A comment in this package's
 code may state only an invariant listed under "What this package enforces" below (rule 10).
-The lights and the `tools/gates/project.mjs` inspector named below do not exist yet — verified
-2026-11-01: `tools/` is an empty directory and `git ls-files` prints nothing. They are named here as the
-contract they are being written to, not as something anyone has run. -->
+The lights and the `tools/gates/project.mjs` inspector named below exist and are committed (verified
+2026-11-02), so fill each field below from their real output rather than from this template's
+wording. -->
 
-**Name:** `@cheq/<name>` · **Path:** `<packages|apps>/<dir>/` · **Vitest project(s):** `<core | core-dom | api | web | none>` · **Spec `kind`:** `<core|api|web|e2e|none>`
+**Name:** `@cheq/<name>` · **Path:** `<packages|apps>/<dir>/` · **Jest project(s):** `<core | core-dom | api | web | none>` (the name `--selectProjects` takes) · **Spec `kind`:** `<core|api|web|e2e|none>`
 
 **Purpose:** (two sentences — what lives here, and what deliberately does not)
 
@@ -16,8 +16,8 @@ contract they are being written to, not as something anyone has run. -->
 versions the lock resolved): `@cheq/core workspace:*` · … — for `@cheq/core` this list is exactly `{}`,
 and that emptiness IS the boundary (`packages/core/package.json:7`): with `node-linker=isolated`
 (`.npmrc:4`) the package has no `node_modules` of its own, so an undeclared import does not resolve.
-`@cheq/core` is the one package with TWO vitest projects — `core` (node) and `core-dom` (jsdom), the same
-files in both environments, `vitest.config.ts:20` and `vitest.config.ts:31`.
+`@cheq/core` is the one package with TWO Jest projects — `core` (node) and `core-dom` (jsdom), the same
+files in both environments, `jest.config.mjs:87` and `jest.config.mjs:94`.
 
 **Must not depend on, and the light that refuses it:** (e.g. "any app, any `node:*`, any DOM —
 `L-core-purity` and `L-graph`"; "`@cheq/web`: nothing but `@cheq/core`, `react` and `react-dom` —
@@ -36,14 +36,17 @@ files in both environments, `vitest.config.ts:20` and `vitest.config.ts:31`.
 never as prose in code): (e.g. "`@cheq/web` turns every input event into exactly one core intent —
 `@cheq/web`, S<n> of CHQ-<nnn>")
 
-**Tests that cover it:** `<dir>/test/CHQ-<nnn>/S<n>_<slug>.test.ts(x)` under vitest project `<name>` ·
+**Tests that cover it:** `<dir>/test/CHQ-<nnn>/S<n>_<slug>.test.ts(x)` under Jest project `<name>` ·
 spec-less skeleton fixtures: `<dir>/test/skeleton/*.test.ts` (guarded, never red-checked, never a spec's
 `check:`)
 
 **Runner of record for its kind** (the verdict, read from the artifact and never from an exit code):
-`core` ⇒ `tsc-noemit + vitest-core` · `api` ⇒ `tsc-noemit + vitest-api` · `web` ⇒ `tsc-noemit +
-vitest-web` · `e2e` ⇒ `playwright-chromium`, CANNOT VERIFY until `.ci/probe.json` reports
-`browser_probe: "pass"`
+`core` ⇒ `tsc-noemit + jest-core` · `api` ⇒ `tsc-noemit + jest-api` · `web` ⇒ `tsc-noemit +
+jest-web` · `e2e` ⇒ `playwright-chromium`, CANNOT VERIFY until `.ci/probe.json` reports
+`browser_probe: "pass"`. Both halves run every time, because the test runner strips types instead of
+checking them ([TD-0004](../tech-debt/TD-0004-runner-does-not-typecheck.md)); the JUnit artifact is
+steered by `JEST_JUNIT_OUTPUT_FILE` in the environment, never by a flag
+([testing.md](../knowledge/testing.md))
 
 **Known debts:** TD-XXXX (<one clause>) | none
 

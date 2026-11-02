@@ -94,7 +94,7 @@ import { EMPTY_TREE } from '../lib/git.mjs';
 import { PENDING_IMPLEMENTATION_PREFIX, STANDING_LIGHTS, parseSpec } from '../lib/spec-parse.mjs';
 import { codeOnly } from '../lib/test-cases.mjs';
 import { byCodepoint } from '../lights/_shared.mjs';
-import { FORBIDDEN, e2eArgv, lintArgv, typesArgv, vitestArgv } from '../run.mjs';
+import { CHILD_ENV, FORBIDDEN, WATCHER_PATTERN, e2eArgv, jestArgv, jestEnv, lintArgv, typesArgv } from '../run.mjs';
 import { TOLERANCE_FLAG, toleranceArgv } from '../ready.mjs';
 import { report as statusReport } from '../status.mjs';
 import {
@@ -131,12 +131,30 @@ const SKELETON_TREES = Object.freeze(['packages', 'apps', 'e2e', 'docs']);
 const DEP_PACKAGES = Object.freeze(['apps/api', 'apps/web']);
 
 /**
+ * The runner's own config, which every fixture needs. `WORKSPACE_ROOT_FILES` in
+ * `./_harness.mjs` brings it, so it is ASSERTED here rather than copied again:
+ * one description of the fact, plus a guard that the fixture is complete.
+ * Measured consequence of its absence, so the guard is not ceremony: red-check
+ * refuses the whole route with `jest.config.mjs does not exist at <base> — the
+ * base carries no project table, so no --selectProjects could be named`, which
+ * reads like a planted defect and is a missing fixture file; L-orphans reads the
+ * same file for its collection bands.
+ */
+const RUNNER_CONFIG_FILES = Object.freeze(['jest.config.mjs']);
+
+/**
  * This repository's committed skeleton in a throwaway repo, WITHOUT
  * `tools/gates/*.mjs` — see THE SYMLINK TRAP above.
  */
 function skeleton(label, { trees = SKELETON_TREES, lock = true, commit = 'chore: scaffold' } = {}) {
   const r = scratchRepo({ label });
   writeWorkspace(r, { lock, commit: false, trees });
+  for (const rel of RUNNER_CONFIG_FILES) {
+    assert(
+      existsSync(join(r.dir, rel)),
+      `the fixture has no ${rel} — WORKSPACE_ROOT_FILES in ./_harness.mjs is what brings it, and without it red-check refuses every route for want of a project table rather than for the defect this probe planted`,
+    );
+  }
   if (commit !== false) {
     r.commit(commit);
     // The scaffold commit is the base every range below is taken from, and that
@@ -206,7 +224,7 @@ const VISION = 'A task carries a due date.\nThe list shows the overdue ones firs
 const s1 = (check = 'TODO') =>
   [
     '- **S1** Given a task whose due date is in the past, when the list is ordered, then that task comes first.',
-    `  - kind: core · home: @cheq/core · verify: tsc-noemit + vitest-core · check: ${check}`,
+    `  - kind: core · home: @cheq/core · verify: tsc-noemit + jest-core · check: ${check}`,
     '  - inputs: due_date=differs, timezone=invariant',
   ].join('\n');
 
@@ -286,7 +304,7 @@ const specGate = (r, args = []) =>
 
 // ──────────────────────────────────────────────────────────────── test sources
 
-const header = "import { describe, expect, it } from 'vitest';\n";
+const header = "import { describe, expect, it } from '@jest/globals';\n";
 
 /** A spec test that passes anywhere: the marker module names itself. */
 const GREEN_CASE = `${header}
@@ -439,6 +457,24 @@ function installable(ctx) {
   return null;
 }
 
+/**
+ * The cure for the ONE class of red-check failure this group cannot plant and
+ * cannot fix: the artefact readers in `tools/gates/lib/` have not learned the
+ * jest shape, so `crash-red (weaker)` is not reachable at all. Both halves were
+ * measured 2026-11-02 and both are also written in red-check.mjs's own header
+ * (:110-130), so this constant repeats a diagnosis rather than inventing one.
+ *
+ * It is appended to the assertions that depend on it, so a probe that fires says
+ * where the fix goes instead of leaving a reader to guess. This group owns
+ * neither file.
+ */
+const READER_SHAPE_CURE =
+  ' CURE, in two files this group may not edit: (1) tools/gates/lib/junit-xml.mjs — jest-junit writes <failure> with NO message= and NO type= attribute ' +
+  "(the type and message are the body's first line), parseJUnit fills both with '' (:134-135), and redReason's `failure?.message ?? failure?.body` (:300) " +
+  "never reaches the body because '' is not nullish, so EVERY failure answers `unknown` and the gate can name no red; " +
+  '(2) tools/gates/lib/junit-xml.mjs + tools/gates/lib/jest-json.mjs — a suite that failed to RUN emits no <testsuite> and no <testcase> at all, so the XML reads ' +
+  'tests="0" and the only channel that can name the file is the JSON (numRuntimeErrorTestSuites, testResults[].assertionResults === [] + a message).';
+
 /** The sentence red-check prints when the install itself refused — never a verdict about a test. */
 const INSTALL_REFUSED = /the base worktree is not installed|pnpm install --frozen-lockfile exited|pnpm could not be spawned/;
 
@@ -533,7 +569,7 @@ const FORBIDDEN_LITERALS = Object.freeze([
   '--passWithNoTests',
   '--passWithNoTests=true',
   '-u',
-  '--update',
+  '--updateSnapshot',
   '--bail',
   '--silent',
   '-t',
@@ -562,7 +598,7 @@ export const probes = [
       assertStatus(planted.res, 1, 'a new test that passes on the base');
       assertOut(planted.res, /✗ GREEN ON BASE: packages\/core\/test\/CHQ-001\/S1_names-itself\.test\.ts/, 'the green file must be named');
       assertOut(planted.res, /"S1_names_itself > S1: the core package names itself"/, 'the green CASE must be named, not only its file');
-      assertOut(planted.res, /✓ red on base: packages\/core\/test\/CHQ-001\/S2_due-window\.test\.ts/, 'the honest assertion failure in the same run must read red on base');
+      assertOut(planted.res, /✓ red on base: packages\/core\/test\/CHQ-001\/S2_due-window\.test\.ts/, `the honest assertion failure in the same run must read red on base.${READER_SHAPE_CURE}`);
       assertOut(planted.res, /every case failed on an assertion/, 'an assertion failure is the strong red, and the gate says which kind it read');
     } finally {
       dropCi(planted.ciRoot);
@@ -583,10 +619,10 @@ export const probes = [
     });
     try {
       assertNotOut(planted.res, INSTALL_REFUSED, 'red-check over the three crash signatures: the base worktree must install first');
-      assertOut(planted.res, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S3_missing-export\.test\.ts/, 'a TypeError from an absent export is crash-red, not red');
-      assertOut(planted.res, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S4_missing-name\.test\.ts/, 'a ReferenceError from a name nobody wrote is the SECOND measured absence signature');
-      assertOut(planted.res, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S5_missing-module\.test\.ts/, 'a module that is not written yet is crash-red');
-      assertOut(planted.res, /not written yet|never loaded on the base/, 'the gate must say in words that it read an absence rather than an assertion');
+      assertOut(planted.res, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S3_missing-export\.test\.ts/, `a TypeError from an absent export is crash-red, not red.${READER_SHAPE_CURE}`);
+      assertOut(planted.res, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S4_missing-name\.test\.ts/, `a ReferenceError from a name nobody wrote is the SECOND measured absence signature.${READER_SHAPE_CURE}`);
+      assertOut(planted.res, /crash-red \(weaker[^)]*\): packages\/core\/test\/CHQ-001\/S5_missing-module\.test\.ts/, `a module that is not written yet is crash-red.${READER_SHAPE_CURE}`);
+      assertOut(planted.res, /not written yet|never loaded on the base/, `the gate must say in words that it read an absence rather than an assertion.${READER_SHAPE_CURE}`);
       assertNotOut(planted.res, /✓ red on base: packages\/core\/test\/CHQ-001\/S[345]_/, 'none of the three may be promoted to the strong red: a crash cannot tell a vacuous case from a real one');
       // Weaker is still red, so the gate passes on these three alone.
       assertStatus(planted.res, 0, 'three crash-red files and nothing else');
@@ -610,7 +646,21 @@ export const probes = [
     try {
       assertNotOut(planted.res, INSTALL_REFUSED, 'red-check over three not-red shapes: the base worktree must install first');
       assertStatus(planted.res, 1, 'three files none of which was proven red');
-      assertOut(planted.res, /S6_todo\.test\.ts.*(\.skip or \.todo|did not execute|skipped)/s, 'an `it.todo` is a case that never ran — CANNOT VERIFY, and never red');
+      // MEASURED 2026-11-02, and the reason this does not demand the words
+      // ".skip or .todo" any more: a file whose ONLY case is an `it.todo` gives
+      // jest-junit a `<testcase>` with an empty body and a suite counter that
+      // EXCLUDES it, so the whole artefact reads tests="0". The gate therefore
+      // refuses it as "the run matched no test" rather than as "a case that did
+      // not execute" — the same CANNOT VERIFY verdict, blocking the same way,
+      // reached through a different sentence. What a probe may still demand is
+      // the verdict: named, cannot-verify, never red.
+      assertOut(planted.res, /CANNOT VERIFY: packages\/core\/test\/CHQ-001\/S6_todo\.test\.ts/, 'an `it.todo` is a case that never ran — it must be NAMED and CANNOT VERIFY');
+      assertNotOut(planted.res, /red on base: packages\/core\/test\/CHQ-001\/S6_todo\.test\.ts/, 'and it must never be promoted to red: a case that did not execute proves nothing either way');
+      assertOut(
+        planted.res,
+        /S6_todo\.test\.ts.*(\.skip or \.todo|did not execute|skipped|tests="0"|matched no test)/s,
+        'the refusal must say what it read — on this runner that is tests="0", because an it.todo is absent from the XML counters altogether',
+      );
       assertOut(planted.res, /S7_package-import\.test\.ts/, 'the package-import file must be named');
       assertOut(planted.res, /the worktree is not installed/, 'TS2307 naming a workspace PACKAGE is an unresolved install, not a missing symbol — an uninstalled base must never read as "the whole feature is pending"');
       assertOut(planted.res, /@cheq\/api/, 'the specifier that did not resolve must be named');
@@ -769,7 +819,7 @@ export const probes = [
     r.commit('chore: refresh the snapshots');
     const res = runGate('tools/gates/test-guard.mjs', ['--since', String(base)], { cwd: r.dir });
     assertStatus(res, 1, 'a snapshot rewritten by the tool and another deleted');
-    assertOut(res, /rewritten snapshot apps\/web\/test\/CHQ-001\/__snapshots__\/S1_screen\.test\.tsx\.snap/, '`vitest -u` replaces the ASSERTION, so a rewritten snapshot is a guarded change');
+    assertOut(res, /rewritten snapshot apps\/web\/test\/CHQ-001\/__snapshots__\/S1_screen\.test\.tsx\.snap/, 'a snapshot rewritten by the runner replaces the ASSERTION, so it is a guarded change');
     assertOut(res, /replaced the assertion, not the code/, 'the message must say why a snapshot counts as a test');
     assertOut(res, /deleted snapshot apps\/web\/test\/CHQ-001\/__snapshots__\/S2_screen\.test\.tsx\.snap/, 'a deleted snapshot is its own violation, not the same one twice');
     r.cleanup();
@@ -891,11 +941,11 @@ export const probes = [
   }),
 
   probe('spec-gate: a hand-typed `verify:` fails and the message prints the value to write', () => {
-    const r = specFixture('sg-verify', spec({ assertions: S1.replace('verify: tsc-noemit + vitest-core', 'verify: vitest 5.0.5 (core)') }));
+    const r = specFixture('sg-verify', spec({ assertions: S1.replace('verify: tsc-noemit + jest-core', 'verify: jest 30.5.2 (core)') }));
     const res = specGate(r);
     assertStatus(res, 1, 'a `verify:` typed by hand, with a version in it');
     assertOut(res, /S1: /, 'the assertion must be named');
-    assertOut(res, /tsc-noemit \+ vitest-core/, 'the message must print the derived value the author should write');
+    assertOut(res, /tsc-noemit \+ jest-core/, 'the message must print the derived value the author should write');
     r.cleanup();
   }),
 
@@ -1047,31 +1097,87 @@ export const probes = [
     );
   }),
 
-  probe('run.mjs: the builders carry both DOTTED outputFile forms, the pinned flags, and the mixed form nowhere', () => {
-    const argv = vitestArgv('core', { junit: '/abs/core.junit.xml', json: '/abs/core.json', filter: null });
+  probe('run.mjs: the jest argv carries --selectProjects, --ci, --runInBand and the JSON channel — and carries neither --retry nor --passWithNoTests', () => {
+    const argv = jestArgv('core', { json: '/abs/core.json', filter: null });
     const joined = argv.join(' ');
-    for (const needed of ['--outputFile.junit=/abs/core.junit.xml', '--outputFile.json=/abs/core.json', '--passWithNoTests=false', '--retry=0', '--no-file-parallelism', '--project']) {
-      assert(argv.includes(needed) || joined.includes(needed), `vitestArgv must carry ${needed}; it built: ${joined}`);
+    for (const needed of ['--selectProjects', '--ci', '--runInBand', '--json', '--outputFile=/abs/core.json']) {
+      assert(argv.includes(needed), `jestArgv must carry ${needed}; it built: ${joined}`);
     }
-    assert(argv[argv.indexOf('--project') + 1] === 'core', `--project must be followed by the kind, so a spec of another kind cannot run under this label; it built: ${joined}`);
     assert(
-      !/--outputFile=/.test(joined),
-      `the MIXED form --outputFile= crashes vitest 5.0.5 before any test runs and writes no artefact (measured), so it must appear in no argv; vitestArgv built: ${joined}`,
+      argv[argv.indexOf('--selectProjects') + 1] === 'core',
+      `--selectProjects must be followed by the kind, so a spec of another kind can never run under this label; it built: ${joined}`,
     );
-    const filtered = vitestArgv('core', { junit: '/a', json: '/b', filter: '^S1_' }).join(' ');
-    assert(/--testNamePattern=\^S1_/.test(filtered), `--filter must reach the runner as its own name pattern (the count is reconciled afterwards); it built: ${filtered}`);
+    assert(
+      !argv.includes('--project') && !/--project[= ]/.test(joined),
+      `--project is the PREVIOUS runner's flag and Jest does not take it; a run started with it would select nothing. It built: ${joined}`,
+    );
+
+    // The ABSENCE is part of the contract, not an omission:
+    //   there is no --retry, because Jest does not retry unless a test asks, so
+    //   there is nothing to switch off — and `--ci` is what makes a missing
+    //   snapshot a failure instead of a file quietly written;
+    //   there is no --passWithNoTests, because Jest already exits non-zero when
+    //   nothing matched. --passWithNoTests EXISTS in jest 30.5.2 (measured: it
+    //   is what makes fixtures/jest/empty-run.* exit 0 instead of 1), so passing
+    //   it is the dangerous spelling and run.mjs refuses a caller who does.
+    for (const absent of ['--retry', '--passWithNoTests', '--no-file-parallelism']) {
+      assert(
+        !argv.some((a) => a === absent || a.startsWith(`${absent}=`)),
+        `${absent} must appear in NO jest argv — its absence is the contract (there is nothing to retry, and Jest already fails an empty run). It built: ${joined}`,
+      );
+    }
+    assert(
+      !argv.some((a) => /^--outputFile\.[A-Za-z0-9_-]+=/.test(a)),
+      `the DOTTED --outputFile.<reporter>= form is the previous runner's; Jest takes one bare --outputFile for the JSON channel. It built: ${joined}`,
+    );
+
+    const filtered = jestArgv('core', { json: '/b', filter: '^S1_' });
+    assert(
+      filtered.includes('-t') && filtered[filtered.indexOf('-t') + 1] === '^S1_',
+      `--filter must reach the runner as its own name pattern -t <re> (the count is reconciled afterwards); it built: ${filtered.join(' ')}`,
+    );
+
     const types = typesArgv('core').join(' ');
     assert(/--listFiles/.test(types) && /-p packages\/core\/tsconfig\.json/.test(types), `typesArgv must ask for --listFiles — zero diagnostics with zero inputs is CANNOT VERIFY, not green; it built: ${types}`);
     assert(lintArgv().includes('--type-aware'), `lintArgv must pass --type-aware: without it the type rules do not run and nothing says so (measured); it built: ${lintArgv().join(' ')}`);
     assert(/--reporter=junit/.test(e2eArgv().join(' ')), `e2eArgv must name a reporter; it built: ${e2eArgv().join(' ')}`);
+  }),
 
-    // And the same claim about the SOURCE, over code with comments and strings
-    // masked: the mixed form is documented in this file's header on purpose, and
-    // a token scan is the only way to tell that occurrence from a live one.
-    const src = codeOnly(readFileSync(join(REPO_ROOT, 'tools/gates/run.mjs'), 'utf8'));
+  probe('run.mjs: the JUnit path travels in the ENVIRONMENT, and a run of record writes it into run.json as `envExtra`', () => {
+    // Half of the artefact contract is not in argv at all. jest-junit is declared
+    // as a reporter in jest.config.mjs with NO `outputFile`, so it takes its path
+    // from JEST_JUNIT_OUTPUT_FILE — measured: with that variable unset it writes
+    // ./junit.xml into the cwd, which is one file every run would overwrite.
+    const argv = jestArgv('core', { json: '/abs/core.json', filter: null }).join(' ');
     assert(
-      !src.includes('--outputFile='),
-      'tools/gates/run.mjs carries the mixed --outputFile= form in CODE (not in a comment or a string) — it writes no artefact',
+      !/JEST_JUNIT_OUTPUT_FILE/.test(argv) && !/junit\.xml/.test(argv),
+      `the JUnit path must NOT be in argv — jest-junit does not take it as a flag; jestArgv built: ${argv}`,
+    );
+    const env = jestEnv({ junit: '/abs/core.junit.xml' });
+    assert(
+      env.JEST_JUNIT_OUTPUT_FILE === '/abs/core.junit.xml',
+      `jestEnv must carry the JUnit path under JEST_JUNIT_OUTPUT_FILE, which is the ONLY way jest-junit learns it; it built ${JSON.stringify(env)}`,
+    );
+    assert(
+      CHILD_ENV.NODE_OPTIONS === '--experimental-vm-modules',
+      `every jest child needs NODE_OPTIONS=--experimental-vm-modules in CHILD_ENV, or each test file dies with "Cannot use import statement outside a module" — ` +
+        `which reads like a broken source and is not one. CHILD_ENV says ${JSON.stringify(CHILD_ENV.NODE_OPTIONS)}`,
+    );
+
+    // And the claim L-artifacts depends on: a run of record must RECORD that
+    // half, or nothing can check where the run was told to write. `run.json` →
+    // `steps[].envExtra` is the declared field (tools/gates/run.mjs:309-312 and
+    // the jestArgv header at :626-628).
+    const src = codeOnly(readFileSync(join(REPO_ROOT, 'tools/gates/run.mjs'), 'utf8'));
+    const spawner = /envExtra\s*:\s*\{\s*\.\.\.env\s*\}/.test(src);
+    assert(spawner, 'tools/gates/run.mjs must capture the child environment it added, as `envExtra: { ...env }` in its spawner — it does not, so no record could carry it');
+    const recorded = /\benvExtra\b/g;
+    const hits = src.match(recorded) ?? [];
+    assert(
+      hits.length >= 2,
+      `tools/gates/run.mjs computes \`envExtra\` and never puts it in a step record: the identifier occurs ${hits.length} time(s) in CODE (comments and strings masked), so \`run.json\` → \`steps[].envExtra\` does not exist and L-artifacts cannot check where a run was told to write its JUnit XML. ` +
+        'CURE in tools/gates/run.mjs: runTest() builds `record` field by field (:1041-1060) and omits the `envExtra` runTool() returned; the oxlint/tsc branch (:849-862) omits it too. ' +
+        'This group may not edit tools/gates/run.mjs.',
     );
   }),
 
@@ -1081,7 +1187,7 @@ export const probes = [
     const mismatch = runGate('tools/gates/run.mjs', ['test', '--kind', 'core', '--label', 'probe-head', '--expect-head', 'abcdef1'], { cwd: r.dir });
     if (/live watcher/.test(mismatch.out)) {
       r.cleanup();
-      return skipped('a live vitest/vite/tsc --watch process on this machine makes run.mjs refuse before it reaches the checks this probe is about');
+      return skipped(`a process matching run.mjs's WATCHER_PATTERN (${WATCHER_PATTERN}) is live on this machine, so run.mjs refuses before it reaches the checks this probe is about`);
     }
     assertStatus(mismatch, 2, 'a --expect-head that is not the checked-out commit');
     assertOut(mismatch, /REFUSED: HEAD is [0-9a-f]{7}, --expect-head asked for abcdef1/, 'the refusal must print BOTH shas: "HEAD does not resolve" is a different fact from "HEAD is not the one asked for"');

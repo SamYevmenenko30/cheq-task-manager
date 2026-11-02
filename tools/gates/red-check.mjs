@@ -22,14 +22,20 @@
  * ONE detached worktree at the merge base, beside the repository, installed ONCE from the BASE
  * lockfile. Then, per file: reset the worktree to the base, stage that one file (plus the
  * branch-added support/fixtures of its own package, plus the opt-in contracts set), and run BOTH
- * channels of the run of record — `tsc --noEmit` for types and `vitest run` for behaviour, because
- * Vitest does not typecheck at all.
+ * channels of the run of record — `tsc --noEmit` for types and `jest` for behaviour, because the
+ * transform strips types and typechecks nothing.
+ *
+ * The jest command is NOT built here. `jestArgv` / `jestEnv` in `./run.mjs` are the one builder of
+ * the run of record, and this gate imports them and appends its own positional path filter: a second
+ * builder of one command is a second answer waiting to diverge. Half of the artefact contract lives
+ * in the ENVIRONMENT — jest-junit takes its output path from `JEST_JUNIT_OUTPUT_FILE`, never from a
+ * flag — so `runTool` carries an env and every judged child records it as `envExtra`.
  *
  * Separate in both senses, and neither is a preference:
  *
  *  - ONE RUN PER FILE (`--isolate`, the default). In TypeScript the reason is stronger than in a
- *    compiled language: module singletons, `vi.mock`, fake timers and import order all leak between
- *    files that share a process, so a shared run lets one file manufacture another's verdict.
+ *    compiled language: module singletons, `jest.mock`, fake timers and import order all leak
+ *    between files that share a process, so a shared run lets one file manufacture another's verdict.
  *    `--group` is opt-in and is IGNORED, with a printed reason, below four files or whenever a
  *    support/fixture or contract file is staged.
  *  - ONE STAGING PER FILE, onto a tree reset to the base first. Whatever is staged runs at HEAD
@@ -50,24 +56,31 @@
  *
  * ── THE FILTER IS THE FILE PATH, AND THE CASES ARE SELECTED AFTERWARDS ──────────────────────────
  *
- * Vitest's `-t` is a SUBSTRING match over the full case name with no anchor, so `-t 'adds a task'`
+ * Jest's `-t` is a SUBSTRING match over the full case name with no anchor, so `-t 'adds a task'`
  * also matches `adds a task twice`; there is no `FullyQualifiedName~Ns.Class.` here. The run is
- * therefore filtered by the FILE PATH as a positional argument, and the cases are selected AFTER
- * the fact out of the artifact, by exact equality against the names `lib/test-cases.mjs` enumerated
- * from the source.
+ * therefore filtered by the FILE PATH as a positional argument — which Jest reads as a regex over
+ * the test path, not as a path — and the cases are selected AFTER the fact out of the artifact, by
+ * exact equality against the names `lib/test-cases.mjs` enumerated from the source.
  *
- * MEASURED 2026-11-01 in this repository, all three with `--project core`:
- *   vitest run packages/core/test/skeleton/digest.test.ts  → exit 0, ONE classname, 16 testcases
- *   vitest run packages/core/test/skeleton                 → exit 0, TWO classnames
- *   vitest run packages/core/test/CHQ-999/S1_nope.test.ts  → exit 1, artifacts written,
- *                                                            `<testsuites tests="0">`
- * The first says the repo-relative spelling is the right one to pass (the project's own root is
- * `./packages/core`, and `classname` comes back repo-relative either way). The second says the
- * positional filter is a SUBSTRING match, not a path: a file whose path contains another's would be
- * collected into the same process, which would quietly end the isolation this gate promises — so
- * every run compares the artifact's file set against the set it asked for and reports a surplus as
- * CANNOT VERIFY. The third is the fail-closed path arriving for free: a filter that matched nothing
- * writes a well-formed report whose `tests="0"` `readJUnit` already refuses.
+ * MEASURED 2026-11-02 in this repository, all three with `--selectProjects core` (the first over one
+ * planted file under `packages/core/test/`, removed again afterwards):
+ *   jest … <one planted .test.ts>                → exit 1, ONE classname, repo-relative
+ *   jest … packages/core/test/skeleton           → exit 0, TWO classnames
+ *   jest … packages/core/test/NOBODY_WROTE_THIS  → exit 1, BOTH artefacts written,
+ *                                                  `<testsuites tests="0">`, JSON total 0
+ * The first says the repo-relative spelling is the right one to pass (the project's own `rootDir` is
+ * `./packages/core`, and `classname` comes back repo-relative either way — `classNameTemplate:
+ * '{filepath}'`). The second says the positional filter matches a path FRAGMENT: a file whose path
+ * contains another's would be collected into the same process, which would quietly end the isolation
+ * this gate promises — so every run compares the artifact's file set against the set it asked for and
+ * reports a surplus as CANNOT VERIFY. The third is the fail-closed path arriving for free, and it is
+ * why no `--passWithNoTests=false` is passed (Jest has no such flag to need): a pattern that matched
+ * nothing exits NON-zero by itself and writes a well-formed report whose `tests="0"` `readJUnit`
+ * already refuses.
+ *
+ * ONE PROJECT PER KIND. `--selectProjects <kind>` names the project whose `displayName` IS the kind,
+ * so `core` is judged in the `node` environment only. `core-dom` runs the same files under `jsdom`
+ * and is L-env-parity's lane, not this gate's: a spec test proven red here is proven red under node.
  *
  * ── WHAT COUNTS AS RED (the measured classification, lib/junit-xml.mjs + lib/tsc-log.mjs) ───────
  *
@@ -89,6 +102,38 @@
  *                                                 diagnostic outside the set or outside a staged
  *                                                 file, a surplus file in the run, a name that DID
  *                                                 exist in the sources.
+ *
+ * ── WHAT THE JEST ARTEFACT DOES NOT CARRY (MEASURED 2026-11-02, and it costs this gate verdicts) ─
+ *
+ * The artefact's SHAPE is unchanged — `<testsuite name="<file>">`, `<testcase classname="<file>"
+ * name="<describe> > <test>">` — which is what the readers in `lib/` know. Two things INSIDE it are
+ * not, and both were measured by planting one assertion-red file and one file importing a module
+ * nobody wrote, then reading both channels of the run with the readers themselves:
+ *
+ *  1. `<failure>` CARRIES NO `type` AND NO `message` ATTRIBUTE. jest-junit writes the text as the
+ *     element BODY, whose first line is `<Type>: <message>`. Read from the attributes alone, every
+ *     failure answered `{ reason: 'unknown' }` — so `classifyRedReasons` said CANNOT VERIFY and
+ *     this gate could not print `✓ red on base` for anything at all. Fail-closed, but not a verdict
+ *     about a test. CURED in `lib/junit-xml.mjs` (`splitFailureBody`, plus the measured
+ *     `expect(` signature for this producer's assertions), which this gate reads and does not own.
+ *  2. A FILE THAT FAILED TO COLLECT HAS NO ROW IN THE XML AT ALL. Vitest wrote one synthetic
+ *     `<testcase>` per uncollected file; Jest omits the whole `<testsuite>` and counts it only in
+ *     the JSON channel (`status: 'failed'`, `assertionResults: []`, and a `message` beginning
+ *     `Test suite failed to run`). So `isCollectionFailure` has nothing to match and the XML of a
+ *     run whose files all failed to collect is a bare `<testsuites tests="0">`, refused outright.
+ *     That mattered more than it sounds: the commonest shape of the test phase — a new test
+ *     importing what nobody has written — IS a collection failure under this runner, so the gate
+ *     was answering CANNOT VERIFY to exactly the honest red tests it exists to accept.
+ *
+ *     CURED by reading the only channel that can name the file: `collectionReason` in
+ *     `lib/jest-json.mjs` classifies its message into the same closed vocabulary `redReason` uses,
+ *     `testChannel` maps one entry per staged file, and the caller classifies it through the same
+ *     `classifyRedReasons`. The verdict is `crash-red` — the weaker one — never `red`, because a
+ *     file that never loaded has proven no assertion. Measured signatures, 2026-11-02:
+ *     `Could not locate module <spec>` for an absent module and
+ *     `The requested module '<spec>' does not provide an export named '<name>'` for an absent
+ *     export. A RELATIVE spec is this project's own unwritten module; a BARE one is an uninstalled
+ *     package, which is `not-installed` and still blocks, because it says nothing about the test.
  *
  * The name check can only DISQUALIFY. `git grep -w` over every `packages/<pkg>/src` and
  * `apps/<app>/src` at BOTH revisions answers "did this name ever exist": if it DID, the red is a
@@ -152,12 +197,13 @@ import { KINDS, PENDING_IMPLEMENTATION, VERDICT_LABELS, parseSpec } from './lib/
 import { caseDiff, listCases } from './lib/test-cases.mjs';
 import { KIND_ROOT, classify, isContract, isSkeletonFixture, isTestSupport, packageOf } from './lib/test-file-patterns.mjs';
 import { classifyPending, classifyTs2307, readTsc } from './lib/tsc-log.mjs';
-import { crossCheck, readVitestJson } from './lib/vitest-json.mjs';
+import { collectionReason, crossCheck, readJestJson } from './lib/jest-json.mjs';
+import { CHILD_ENV, jestArgv, jestEnv } from './run.mjs';
 
 // ───────────────────────────────────────────────────────────────────────────── vocabulary
 
 /** The kinds this gate has a measured runner for. `e2e` is refused by name — see the header. */
-export const VITEST_KINDS = KINDS.filter((k) => k !== 'e2e');
+export const JEST_KINDS = KINDS.filter((k) => k !== 'e2e');
 
 /** Four files is the threshold `--group` needs; below it, one run per file costs nothing worth having. */
 export const GROUP_MIN_FILES = 4;
@@ -174,15 +220,19 @@ export const LABELS = Object.freeze({
 const CV = LABELS.cannotVerify;
 
 // 1 MiB (the spawnSync default) truncates a chatty child, and the truncation is then reported as a
-// failure that never happened. A vitest run with two reporters is chatty.
+// failure that never happened. A jest run with two reporters is chatty.
 const MAX_BUFFER = 64 * 1024 * 1024;
 
+// The child environment is `CHILD_ENV` from `./run.mjs` and is not restated here: the run of record
+// and the base run must not disagree about the language, the clock or the module loader. It pins
 // LANG/LC_ALL=C because git and the toolchain otherwise speak the OS language (lib/git.mjs, fact 1:
-// `git rev-parse HEAD` answered `Schwerwiegend: …` on this Mac). CI=1 and NO_COLOR so no child
-// renders a progress spinner into an artifact.
-const CHILD_ENV = { CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', TZ: 'UTC', LANG: 'C', LC_ALL: 'C' };
+// `git rev-parse HEAD` answered `Schwerwiegend: …` on this Mac), CI=1 and NO_COLOR so no child
+// renders a progress spinner into an artifact, and NODE_OPTIONS=--experimental-vm-modules, without
+// which every ESM test file dies with `Cannot use import statement outside a module` — a message
+// that reads as a broken source and is not one. FORCE_COLOR is deliberately NOT pinned: measured in
+// run.mjs, node prints a warning into every artefact when NO_COLOR and FORCE_COLOR are both set.
 
-const USAGE = `usage: node tools/gates/red-check.mjs [--base <ref> | --since <sha>] [--kind ${[...VITEST_KINDS, 'all'].join('|')}] [--isolate | --group]`;
+const USAGE = `usage: node tools/gates/red-check.mjs [--base <ref> | --since <sha>] [--kind ${[...JEST_KINDS, 'all'].join('|')}] [--isolate | --group]`;
 
 const log = (m) => console.log(`[red-check] ${m}`);
 
@@ -248,8 +298,8 @@ export function parseArgs(argv) {
   }
   if (out.since !== null && argv.includes('--base'))
     out.errors.push('--since and --base name two different bases — pass one (--since <sha> wins nothing by accident here, it is refused)');
-  if (![...VITEST_KINDS, 'all'].includes(out.kind))
-    out.errors.push(`--kind ${JSON.stringify(out.kind)} is not one of ${[...VITEST_KINDS, 'all'].join(', ')} — the e2e lane has no base run (its browsers are not downloaded)`);
+  if (![...JEST_KINDS, 'all'].includes(out.kind))
+    out.errors.push(`--kind ${JSON.stringify(out.kind)} is not one of ${[...JEST_KINDS, 'all'].join(', ')} — the e2e lane has no base run (its browsers are not downloaded)`);
   if (out.mode === null) out.mode = 'isolate';
   out.ok = out.errors.length === 0;
   return out;
@@ -265,9 +315,13 @@ export function parseArgs(argv) {
  * 2; `tsc` over four TS6059). The log is written from the captured buffer, so the file on disk and
  * the exit code describe the same process — and the verdict is then read from the file, never from
  * the code.
+ *
+ * `env` is part of the CONTRACT, not a convenience: jest-junit takes its output path from
+ * `JEST_JUNIT_OUTPUT_FILE` and from no flag, so a child recorded by argv alone could not say where
+ * it was told to write. It is returned as `envExtra` and written into the record beside `argv`.
  */
-function runTool(ctx, file, args, { cwd, logPath = null } = {}) {
-  const r = spawnSync(file, args, { cwd, encoding: 'utf8', maxBuffer: MAX_BUFFER, env: { ...process.env, ...CHILD_ENV } });
+function runTool(ctx, file, args, { cwd, logPath = null, env = {} } = {}) {
+  const r = spawnSync(file, args, { cwd, encoding: 'utf8', maxBuffer: MAX_BUFFER, env: { ...process.env, ...CHILD_ENV, ...env } });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
   if (logPath) {
     try {
@@ -279,7 +333,7 @@ function runTool(ctx, file, args, { cwd, logPath = null } = {}) {
       log(`note: could not write ${String(logPath)}: ${firstLine(e.message)}`);
     }
   }
-  return { argv: [file, ...args], code: r.error ? null : (r.status ?? null), out, spawnError: r.error?.message ?? null };
+  return { argv: [file, ...args], envExtra: { ...env }, code: r.error ? null : (r.status ?? null), out, spawnError: r.error?.message ?? null };
 }
 
 // ──────────────────────────────────────────────────────────────────── the gate's own state
@@ -410,7 +464,7 @@ function collectScope(ctx) {
     );
   }
 
-  const inKind = (kind) => VITEST_KINDS.includes(kind) && (ctx.args.kind === 'all' || ctx.args.kind === kind);
+  const inKind = (kind) => JEST_KINDS.includes(kind) && (ctx.args.kind === 'all' || ctx.args.kind === kind);
   ctx.scope.added = addedTests.filter((c) => inKind(c.kind));
   ctx.scope.modified = modifiedTests.filter((m) => inKind(m.info.kind));
   for (const c of addedTests) if (c.kind !== 'e2e' && !inKind(c.kind)) log(`skipping ${c.path} — --kind ${ctx.args.kind} does not cover kind ${c.kind}`);
@@ -535,15 +589,18 @@ function installBase(ctx) {
     );
   log(`installed from ${ctx.mb7}:pnpm-lock.yaml (sha256 ${want.slice(0, 12)}, matching node_modules/.pnpm/lock.yaml)`);
 
-  for (const b of ['tsc', 'vitest']) {
+  for (const b of ['tsc', 'jest']) {
     if (!existsSync(bin(ctx, b)))
       return (
         `${join('node_modules/.bin', b)} is absent after the install — the runner of record is not in the base worktree; see ${logPath}. ` +
         `What to do: check that ${b} is a devDependency at ${ctx.mb7}.`
       );
   }
-  if (!existsSync(join(ctx.wt, 'vitest.config.ts')))
-    return `vitest.config.ts does not exist at ${ctx.mb7} — the base carries no project table, so no --project could be named.`;
+  if (!existsSync(join(ctx.wt, 'jest.config.mjs')))
+    return (
+      `jest.config.mjs does not exist at ${ctx.mb7} — the base carries no project table, so no --selectProjects could be named. ` +
+      'What to do: pass --since <sha> naming a base that already holds the jest config.'
+    );
   return null;
 }
 
@@ -732,41 +789,57 @@ function typeChannel(ctx, kind, label) {
 
 /**
  * Channel 2 — behaviour. The filter is the FILE PATH, positional (measured: the repo-relative
- * spelling matches, and `classname` comes back in that same spelling). BOTH `--outputFile` keys are
- * DOTTED: measured, the mixed form (`--outputFile=A --outputFile.json=B`) crashes vitest before any
- * test runs and writes NOTHING, which is indistinguishable from a failing suite to anyone reading
- * the exit code.
+ * spelling matches, and `classname` comes back in that same spelling).
+ *
+ * The argv is `jestArgv` from `./run.mjs` plus this gate's own path filter, and the JUnit path is
+ * NOT in it: jest-junit reads `JEST_JUNIT_OUTPUT_FILE` from the environment, which `jestEnv` builds
+ * and `runTool` records as `envExtra`. Neither builder is restated here — one command has one
+ * builder, or two call sites eventually answer differently about the same run.
  *
  * → `{ ok, reason, junit, json, code }`
  */
 function testChannel(ctx, kind, files, label) {
   const xml = artifactPath(ctx.runDir, `${label}.junit.xml`);
   const json = artifactPath(ctx.runDir, `${label}.json`);
-  const logPath = artifactPath(ctx.runDir, `vitest.${label}.log`);
-  const args = [
-    'run',
-    ...files,
-    '--project',
-    kind,
-    '--reporter=junit',
-    `--outputFile.junit=${xml}`,
-    '--reporter=json',
-    `--outputFile.json=${json}`,
-    '--retry=0',
-    '--no-file-parallelism',
-    '--passWithNoTests=false',
-  ];
-  const r = runTool(ctx, bin(ctx, 'vitest'), args, { cwd: ctx.wt, logPath });
-  ctx.children.push({ what: `vitest.${label}`, argv: r.argv, exitCode: r.code, junit: xml, json });
+  const logPath = artifactPath(ctx.runDir, `jest.${label}.log`);
+  // `filter: null` — the cases are selected afterwards out of the artifact by exact name equality,
+  // because `-t` is an unanchored substring match and cannot stand for a case (see the header).
+  const args = [...jestArgv(kind, { json, filter: null }), ...files];
+  const env = jestEnv({ junit: xml });
+  const r = runTool(ctx, bin(ctx, 'jest'), args, { cwd: ctx.wt, logPath, env });
+  ctx.children.push({ what: `jest.${label}`, argv: r.argv, envExtra: r.envExtra, exitCode: r.code, junit: xml, json });
   for (const a of [xml, json]) if (existsSync(a)) ctx.artifacts.push(a);
-  if (r.spawnError) return { ok: false, reason: `vitest could not be spawned: ${r.spawnError}`, junit: null, json: null, code: null };
+  if (r.spawnError)
+    return { ok: false, reason: `jest could not be spawned: ${r.spawnError}`, junit: null, json: null, collection: [], code: null };
 
   const junitRead = readJUnit(xml);
-  const jsonRead = readVitestJson(json);
-  if (!junitRead.ok)
-    return { ok: false, reason: `${junitRead.reason} (vitest exited ${r.code}: ${tail(r.out, 2)})`, junit: junitRead, json: jsonRead, code: r.code };
+  const jsonRead = readJestJson(json);
 
-  // The positional filter is a SUBSTRING match (measured: `packages/core/test/skeleton` collected
+  // WHAT THE XML CANNOT SEE, THE JSON CAN NAME. A file that never loaded has no `<testsuite>` and
+  // no `<testcase>` in the XML, so the XML of a run whose files all failed to collect is a bare
+  // `<testsuites tests="0">` — refused below, and rightly, since it says nothing. The JSON channel
+  // still carries one entry per uncollected file, and `collectionReason` reads its message. Mapped
+  // here and nowhere else, so the caller classifies a collection failure through the same
+  // `classifyRedReasons` as an ordinary one. The absolute path is matched by suffix, because the
+  // JSON writes absolute and this gate speaks repo-relative (both measured).
+  const collection = (jsonRead.collectionFailures ?? []).flatMap((f) => {
+    const file = files.find((x) => f.name === x || f.name.endsWith(`/${x}`));
+    if (file === undefined) return [];
+    const c = collectionReason(f.message);
+    return [{ file, name: file, type: '', reason: c.reason, specifier: c.specifier, message: c.message }];
+  });
+
+  if (!junitRead.ok)
+    return {
+      ok: false,
+      reason: `${junitRead.reason} (jest exited ${r.code}: ${tail(r.out, 2)})`,
+      junit: junitRead,
+      json: jsonRead,
+      collection,
+      code: r.code,
+    };
+
+  // The positional filter is a path-FRAGMENT match (measured: `packages/core/test/skeleton` collected
   // two files), so a file whose path contains another's would land in the same process and the
   // isolation this gate promises would be gone without a word. The artifact says which files ran.
   const surplus = filesIn(junitRead).filter((f) => !files.includes(f));
@@ -774,46 +847,40 @@ function testChannel(ctx, kind, files, label) {
     return {
       ok: false,
       reason:
-        `the run collected ${surplus.length} file(s) nobody asked for: ${surplus.join(', ')} — the positional filter is a substring ` +
-        'match, so a path that contains another path shares its process, and a verdict from a shared process is not isolated. ' +
-        'What to do: rename so that no test path is a prefix of another.',
+        `the run collected ${surplus.length} file(s) nobody asked for: ${surplus.join(', ')} — a positional argument is a regex over ` +
+        'the test PATH, so a path that contains another path shares its process, and a verdict from a shared process is not isolated. ' +
+        'What to do: rename so that no test path is a fragment of another.',
       junit: junitRead,
       json: jsonRead,
+      collection,
       code: r.code,
     };
 
-  // MEASURED, and the commonest shape of the test phase: a brand-new test importing a module nobody
-  // has written yet. The XML then holds ONE synthetic testcase per file (`tests="1"`) while the JSON
-  // holds `numTotalTests: 0` plus one `collectionFailures` entry, because a file that never loaded
-  // contributes no case. `readVitestJson` therefore refuses the whole report ("the run matched no
-  // test"), which is the right rule everywhere else, and `crossCheck` short-circuits on an unusable
-  // channel — so asking it here answered CANNOT VERIFY for a file that is honestly crash-red.
+  // A FILE THAT NEVER LOADED IS NOT IN THIS XML. The reconciliation that used to stand here read a
+  // run whose every `<testcase>` was a collection failure and let it through as the honest crash-red
+  // it was. MEASURED 2026-11-02, that run no longer exists: jest-junit omits an uncollected file's
+  // `<testsuite>` entirely, so a run whose files all failed to collect writes `<testsuites
+  // tests="0">` and is already refused by `readJUnit` above, and a run where only some failed comes
+  // back short by exactly those files — which is the disagreement `crossCheck` reports below,
+  // because its measured identity (XML tests === JSON total + collection failures) was closed on the
+  // synthetic cases Vitest wrote and Jest does not. The JSON channel is the only one that still
+  // counts them (`status: 'failed'`, no `assertionResults`, `Test suite failed to run`).
   //
-  // There is nothing to cross-check when no case ran, so this asks the one identity that still
-  // applies (XML tests === JSON collection failures) off the fields `readVitestJson` populates even
-  // on its refusal path. The channels still have to agree; they just agree about a run with no cases.
-  const collapsed = junitRead.cases.length > 0 && junitRead.cases.every(isCollectionFailure);
-  if (collapsed && !jsonRead.ok && jsonRead.counts?.total === 0) {
-    const cf = jsonRead.collectionFailures?.length ?? 0;
-    if (cf === junitRead.totals.tests) {
-      log(`${label}: every file in the run failed to collect (${cf}); there is no case to cross-check, and both channels say so`);
-      return { ok: true, reason: null, junit: junitRead, json: jsonRead, code: r.code };
-    }
-    return {
-      ok: false,
-      reason:
-        `every <testcase> in the XML is a collection failure (${junitRead.totals.tests}) but the JSON reports ${cf} — ` +
-        'the channels disagree about how much of the run never loaded',
-      junit: junitRead,
-      json: jsonRead,
-      code: r.code,
-    };
-  }
-
+  // Nothing is reconciled here instead, and that is the point: `crossCheck` and `isCollectionFailure`
+  // live in lib/, this gate is not their owner, and a second arithmetic written at this call site
+  // would be a gate marking its own premise as met. CANNOT VERIFY blocks, which is the honest answer
+  // until those readers are re-measured against Jest (header: WHAT THE JEST ARTEFACT DOES NOT CARRY).
   const cross = crossCheck(junitRead, jsonRead);
   if (!cross.agree)
-    return { ok: false, reason: `the two channels of one run disagree: ${cross.reasons.join('; ')}`, junit: junitRead, json: jsonRead, code: r.code };
-  return { ok: true, reason: null, junit: junitRead, json: jsonRead, code: r.code };
+    return {
+      ok: false,
+      reason: `the two channels of one run disagree: ${cross.reasons.join('; ')}`,
+      junit: junitRead,
+      json: jsonRead,
+      collection,
+      code: r.code,
+    };
+  return { ok: true, reason: null, junit: junitRead, json: jsonRead, collection, code: r.code };
 }
 
 // ═══════════════════════════════════════════════════════════════════════ classification
@@ -1018,7 +1085,7 @@ function record(ctx, file, v) {
 // ══════════════════════════════════════════════════════════════════════════════ routes
 
 function runRoutes(ctx) {
-  for (const kind of VITEST_KINDS) {
+  for (const kind of JEST_KINDS) {
     const files = ctx.scope.added.filter((c) => c.kind === kind);
     const mods = ctx.scope.modified.filter((m) => m.info.kind === kind);
     if (!files.length && !mods.length) continue;
@@ -1079,7 +1146,27 @@ function addedFileRun(ctx, kind, infos, label) {
       label,
     );
     if (!t.ok) {
-      all(() => ({ verdict: 'cannot-verify', why: t.reason }));
+      // A file the JSON names as never having loaded is still judgeable: that is the commonest
+      // shape of the red-test phase (a test importing what nobody has written), and the measured
+      // reason says whether it is an absence or something else. `crash-red` is the weaker verdict
+      // it has always been — never `red`, because a file that did not load proves no assertion —
+      // and `not-installed` or an unnamed signature still blocks, through classifyRedReasons.
+      // A file the JSON does NOT name has no honest reading at all, so it blocks on t.reason.
+      for (const c of infos) {
+        const hit = (t.collection ?? []).find((x) => x.file === c.path);
+        if (hit === undefined) {
+          record(ctx, c.path, { verdict: 'cannot-verify', why: t.reason });
+          continue;
+        }
+        const v = classifyWith(ctx, [hit], { tscGreen });
+        record(
+          ctx,
+          c.path,
+          v.verdict === 'cannot-verify'
+            ? v
+            : { verdict: v.verdict === 'red' ? 'crash-red' : v.verdict, why: `${c.path} never loaded on the base — ${v.why}` },
+        );
+      }
       return;
     }
     for (const c of infos) {
@@ -1124,6 +1211,12 @@ function fileLevelVerdict(ctx, file, listed, junit, { tscGreen, pendingWhy }) {
   }
   // CANNOT VERIFY from the artifact. A collection failure is the one shape that can still be
   // crash-red: the file never loaded, and the measured reason says whether that is an absence.
+  //
+  // This filter reads the XML, where an uncollected file leaves NO row under this producer, so it
+  // finds nothing here and the verdict below is CANNOT VERIFY. The live path for that shape is in
+  // the caller, which reads it off the JSON channel (header item 2) — this one is kept because
+  // `isCollectionFailure`'s suffix form is still correct for any producer that does emit a
+  // synthetic case, and a gate that silently stopped looking would be the worse failure.
   const collection = (fv.cases ?? []).filter(isCollectionFailure);
   if (collection.length) {
     const c = classifyWith(ctx, collection.map(caseReason), { tscGreen });

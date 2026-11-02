@@ -44,7 +44,7 @@ import { spawnSync } from 'node:child_process';
 // ---------------------------------------------------------------- dictionaries
 
 /**
- * The four kinds. `kind` is the whole routing table: a kind names the vitest
+ * The four kinds. `kind` is the whole routing table: a kind names the jest
  * project of the same name, the directory a spec test lives in, the artifact the
  * verdict is read from, and the runner `verify:` prints. There is no registry in
  * the middle, which is why the name has to be the same word in all four places.
@@ -96,11 +96,11 @@ export const PENDING_IMPLEMENTATION_PREFIX = `${PENDING_IMPLEMENTATION}:`;
 export function deriveVerify(kind) {
   switch (kind) {
     case 'core':
-      return 'tsc-noemit + vitest-core';
+      return 'tsc-noemit + jest-core';
     case 'api':
-      return 'tsc-noemit + vitest-api';
+      return 'tsc-noemit + jest-api';
     case 'web':
-      return 'tsc-noemit + vitest-web';
+      return 'tsc-noemit + jest-web';
     case 'e2e':
       return 'playwright-chromium';
     default:
@@ -164,7 +164,7 @@ export const STANDING_LIGHTS = [
   { id: 'L-testshape', severity: 'hard', fast: true, title: 'spec tests carry literal S<n>_ titles and no @ts-expect-error / @ts-nocheck / as any' },
   { id: 'L-testguard', severity: 'hard', fast: true, title: 'test-guard as a light' },
   { id: 'L-deps', severity: 'hard', fast: true, title: 'no dependency without a `package:` line and a lockfile change; vendor digest present' },
-  { id: 'L-orphans', severity: 'hard', fast: true, title: 'no tracked source outside its project; every test matched by exactly one vitest project' },
+  { id: 'L-orphans', severity: 'hard', fast: true, title: 'no tracked source outside its project; every test matched by exactly one jest project' },
   { id: 'L-visible', severity: 'hard', fast: true, title: 'every blind spot of every walk is declared' },
   { id: 'L-generated', severity: 'hard', fast: true, title: 'a generated file is re-generated and diffed, never hand-edited' },
   { id: 'L-stubkit', severity: 'hard', fast: true, title: 'a stub renders no invented data: path, STUB marker, stubkit only' },

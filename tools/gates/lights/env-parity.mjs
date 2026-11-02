@@ -4,9 +4,9 @@
  *
  * Zero dependencies, Node 22 ESM. `@cheq/core` is engine-free by rule and ships
  * to the browser through `apps/web`, so "it passes" is a claim about two
- * environments. The pair of Vitest projects that runs one include in two
+ * environments. The pair of Jest projects that runs one include in two
  * environments is the one honest parity lane this repository has
- * (vitest.config.ts:32, `../lib/test-project.mjs` PROJECTS), and this light is
+ * (jest.config.mjs:94, `../lib/test-project.mjs` PROJECTS), and this light is
  * the only thing that reads both artifacts and compares them.
  *
  * ──────────────────────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@
  * `node=green dom=absent` is not a disagreement about code — it is one run
  * older than the other. An artifact older than any source under the package is
  * therefore not read: both projects are RE-RUN, which is also why this light
- * declares the `vitest` premise rather than hoping somebody else ran the lane.
+ * declares the `jest` premise rather than hoping somebody else ran the lane.
  *
  * The freshness key is CONTENT in two halves, and never mtime. The reason for
  * "never mtime" is mechanical: `git checkout` and a restored build cache both
@@ -48,7 +48,7 @@
  *
  * Half 2 is an addition to the key the port plan names, and it closes a hole
  * that half alone would leave wide open: `git ls-files -s` reports the INDEX, so
- * an edit nobody staged does not move it — and Vitest runs the WORK TREE. With
+ * an edit nobody staged does not move it — and the runner runs the WORK TREE. With
  * half 1 alone, editing a source and re-running the lights would compare the
  * artifacts of the tree BEFORE the edit while reporting them as fresh, which is
  * precisely the "an artifact older than its sources" failure this light exists
@@ -85,18 +85,18 @@
  * THE MEASURED COMMAND FORM, AND THE ONE FLAG SHAPE THAT SILENTLY WRITES NOTHING
  * ──────────────────────────────────────────────────────────────────────────────
  *
- *     vitest run --project <p> --reporter=junit --reporter=json
+ *     jest --selectProjects <p> --ci --runInBand --json --outputFile=<json>
  *       --outputFile.junit=<xml> --outputFile.json=<json>
  *       --retry=0 --no-file-parallelism --passWithNoTests=false
  *
  * MEASURED 2026-11-01: `outputFile` inside a `projects` entry is IGNORED (the
- * reports land in Vitest's own `.vitest/`), so the artifact is asked for on the
+ * reporter writes `junit.xml` into the cwd), so each run's artifact path is given to the
  * command line; and the two `--outputFile` flags must BOTH be the dotted form —
  * mixing the plain `--outputFile=` with `--outputFile.json=` makes the run fail
  * and write nothing at all. `--retry=0` because a flaky pass is not parity, and
  * `--passWithNoTests=false` because an empty run must be loud.
  *
- * Both channels are read (`../lib/junit-xml.mjs` and `../lib/vitest-json.mjs`)
+ * Both channels are read (`../lib/junit-xml.mjs` and `../lib/jest-json.mjs`)
  * and reconciled with `crossCheck` before anything is compared: two channels
  * about one run that do not agree mean neither may be quoted. The exit code is
  * captured separately by `sh()` and stays advisory — there is no pipe in this
@@ -127,7 +127,7 @@ import { isCollectionFailure, readJUnit, redReason, toTri } from '../lib/junit-x
 import { sha256 } from '../lib/probe.mjs';
 import { KIND_ROOT } from '../lib/test-file-patterns.mjs';
 import { PROJECTS, PROJECT_NAMES, projectState } from '../lib/test-project.mjs';
-import { crossCheck, readVitestJson } from '../lib/vitest-json.mjs';
+import { crossCheck, readJestJson } from '../lib/jest-json.mjs';
 import { requirePremise, sh } from './_shared.mjs';
 
 export const id = 'L-env-parity';
@@ -136,7 +136,7 @@ export const severity = 'hard';
 /** Without the runner this light cannot re-run a stale pair, and a stale pair is
  * the one thing it must never compare — so the premise is DECLARED and `run.mjs`
  * refuses the row by that premise's own name. */
-export const premises = ['vitest'];
+export const premises = ['jest'];
 
 /**
  * Declared so the pack ORDERS this light after the compile verdict: a parity
@@ -171,7 +171,7 @@ export function parityBand() {
   const groups = new Map();
   for (const name of PROJECT_NAMES) {
     const cfg = PROJECTS[name];
-    if (cfg.runner !== 'vitest') continue;
+    if (cfg.runner !== 'jest') continue;
     const key = `${cfg.dir}|${[...cfg.extensions].toSorted(sortStr).join(',')}`;
     if (!groups.has(key)) groups.set(key, { dir: cfg.dir, extensions: cfg.extensions, projects: [] });
     groups.get(key).projects.push(name);
@@ -211,7 +211,7 @@ export function parityBand() {
  * runner of `../lib/git.mjs` rather than through its `statusPorcelain`, which
  * pins `--untracked-files=no` — and an untracked file is the half of the dirty
  * set that matters most here, because a test file nobody staged yet is still a
- * test file Vitest runs.
+ * test file the runner runs.
  *
  * A path git reports is hashed from DISK. A deleted one hashes to the word
  * `absent`, so a deletion moves the key as surely as an edit does.
@@ -257,7 +257,7 @@ export function contentKey(root, dirRel) {
 // The `premises` property is the probe `run.mjs` hands every light; the binding
 // is renamed so it does not shadow this module's own `premises` declaration.
 export function run({ root = process.cwd(), premises: premiseProbe = null } = {}) {
-  const prem = requirePremise(premiseProbe, 'vitest');
+  const prem = requirePremise(premiseProbe, 'jest');
   if (!prem.ok) return { id, severity, status: 'cannot-verify', detail: prem.reason };
 
   const found = parityBand();
@@ -334,21 +334,22 @@ export function run({ root = process.cwd(), premises: premiseProbe = null } = {}
 
     const ran = {};
     for (const p of band.projects) {
+      // The same two channels as the run of record, built the same way — except
+      // that with Jest the JUnit path is NOT a flag: jest-junit takes it from
+      // JEST_JUNIT_OUTPUT_FILE, so half of the artefact contract travels in the
+      // environment. NODE_OPTIONS is required for ESM; without it every test file
+      // dies with "Cannot use import statement outside a module", which would read
+      // here as a runtime difference between node and jsdom and is nothing of the
+      // kind. --ci replaces --retry=0 (Jest does not retry unasked) and
+      // --runInBand replaces --no-file-parallelism; --passWithNoTests is NOT
+      // passed because Jest already exits non-zero when nothing matched.
       const r = sh(
         prem.premise.path,
-        [
-          'run',
-          '--project',
-          p,
-          '--reporter=junit',
-          '--reporter=json',
-          `--outputFile.junit=${artifacts[p].xml}`,
-          `--outputFile.json=${artifacts[p].json}`,
-          '--retry=0',
-          '--no-file-parallelism',
-          '--passWithNoTests=false',
-        ],
-        { cwd: root },
+        ['--selectProjects', p, '--ci', '--runInBand', '--json', `--outputFile=${artifacts[p].json}`],
+        {
+          cwd: root,
+          env: { JEST_JUNIT_OUTPUT_FILE: artifacts[p].xml, NODE_OPTIONS: '--experimental-vm-modules' },
+        },
       );
       if (r.code === null) return { id, severity, status: 'cannot-verify', detail: `could not run ${prem.premise.rel} for project ${p}: ${r.spawnError ?? 'spawn failed'} (${r.argv.join(' ')})` };
       const absent = [
@@ -385,7 +386,7 @@ export function run({ root = process.cwd(), premises: premiseProbe = null } = {}
   for (const p of band.projects) {
     const junit = readJUnit(artifacts[p].xml);
     if (!junit.ok) return { id, severity, status: 'cannot-verify', detail: `${p} (${envOf[p]}): ${junit.reason} · ${runNotes.join(' · ')}` };
-    const json = readVitestJson(artifacts[p].json);
+    const json = readJestJson(artifacts[p].json);
     const cross = crossCheck(junit, json);
     if (!cross.ok)
       return {

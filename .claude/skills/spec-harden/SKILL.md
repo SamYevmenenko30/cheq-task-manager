@@ -42,9 +42,11 @@ with what a task manager "obviously" does — that is a `Qn:`, every time.
    - `pnpm ls --depth 0 --json` — what is installed, and `pnpm-lock.yaml` as the single source of
      versions.
    - `git log --oneline -20 -- <paths>`.
-   - For the Vitest surface, `pnpm exec vitest list --project <kind> --json` (an array of
-     `{name, file, projectName, location}` — measured 2026-11-01) and NOT `vitest.config.ts`: the
-     config's `include` globs are an intention, the listing is what collection found. It is
+   - For the runner's surface, `pnpm exec jest --selectProjects <kind> --listTests --json` and NOT
+     `jest.config.mjs`: the config's `testMatch` globs are an intention, the listing is what
+     collection found. There is no `jest list`, and the listing is an array of **absolute file
+     paths** — not per-case records, so it answers "which files" and never "which cases" (measured
+     2026-11-02; `tools/gates/lights/orphans.mjs:627-647` is the one reader of that shape). It is
      ADVISORY: collection is an import, so on a tree where the implementation does not exist yet it
      legitimately returns nothing. Cite it as advisory or not at all.
 
@@ -70,14 +72,16 @@ with what a task manager "obviously" does — that is a `Qn:`, every time.
      one or more indented bullets):
      ```
      - **S1** Given …, when …, then ….
-       - kind: core · home: @cheq/core · verify: tsc-noemit + vitest-core
+       - kind: core · home: @cheq/core · verify: tsc-noemit + jest-core
        - check: TODO
        - inputs: seed=invariant · now=differs
      ```
-     `kind:` ∈ `core|api|web|e2e` — the runner layer, mandatory, and the same word as the Vitest
-     project that will judge it (`vitest.config.ts:20,31,39,47`). `verify:` is DERIVED from `kind`
-     by spec-gate, names the RUNNER only, and must be typed exactly as it derives it: core ⇒
-     `tsc-noemit + vitest-core`; api ⇒ `tsc-noemit + vitest-api`; web ⇒ `tsc-noemit + vitest-web`;
+     `kind:` ∈ `core|api|web|e2e` — the runner layer, mandatory, and the same word as the
+     `displayName` of the project that will judge it (`jest.config.mjs:87,101,108`; `core-dom` at
+     `:94` is a parity lane, not a kind). `verify:` is DERIVED from `kind`
+     by spec-gate (`tools/gates/lib/spec-parse.mjs:96-109`), names the RUNNER only, and must be
+     typed exactly as it derives it: core ⇒ `tsc-noemit + jest-core`; api ⇒
+     `tsc-noemit + jest-api`; web ⇒ `tsc-noemit + jest-web`;
      e2e ⇒ `playwright-chromium`. Never write machine state into it — no version, no path, no
      "pending" word. Whether the e2e lane can run at all is read live from `BROWSER_PROBE` in the
      session that needs it (ts-loop, PRE-FLIGHT), never from the spec. `check: TODO` until the test

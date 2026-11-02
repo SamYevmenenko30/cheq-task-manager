@@ -2,7 +2,8 @@
 
 An agent does not know a third-party package's API. Without a written surface it guesses member names,
 and a guess compiles only by luck — or, worse, typechecks against a `.d.ts` nobody read and fails at
-runtime where no lane is looking (`skipLibCheck: true`, `tsconfig.base.json:26`, TD-0004). This folder
+runtime where no lane is looking (`skipLibCheck: true`, `tsconfig.base.json:26`,
+[TD-0004](../tech-debt/TD-0004-runner-does-not-typecheck.md)). This folder
 holds one digest per **runtime** dependency, written BEFORE any code calls it.
 
 The folder name is lowercase on purpose: this APFS volume is case-insensitive, so `Docs/Vendor` and
@@ -15,7 +16,7 @@ The folder name is lowercase on purpose: this APFS volume is case-insensitive, s
   dependency rule requires. `L-deps` fails a runtime dependency with no digest, and fails a digest
   whose `version:` line disagrees with `pnpm-lock.yaml`.
 - **`devDependencies` get no digest, and that asymmetry is deliberate.** A dev dependency here is a
-  TOOL whose output is an artifact the gates read — `tsc`, `vitest`, `oxlint`, `playwright` — so its
+  TOOL whose output is an artifact the gates read — `tsc`, `jest`, `oxlint`, `playwright` — so its
   behaviour is pinned by probes and by the measured artifact shapes (ADR-0002), not by a prose
   description of its API. A runtime dependency is different: our own code calls its members, and a
   wrong member name is a bug a probe will never find for us. A dev dependency that starts being

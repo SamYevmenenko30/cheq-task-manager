@@ -1,7 +1,7 @@
 # TD-0010: There is no performance lane — `perf` is not a kind, no threshold exists, and `vite build` has never been a verdict
 
 **Status:** Open · a performance requirement cannot become an assertion: `deriveVerify` has no `perf` route, so such a sentence goes into a spec's `## Lights` or `## Syrup` and is never a `verify:` target
-**Area:** `docs/templates/SPEC.md:87` (`kind:`) · `tsconfig.base.json:13` · `apps/web/package.json:12` · `apps/web/vite.config.ts` · `docs/knowledge/testing.md:219-220`
+**Area:** `docs/templates/SPEC.md:87` (`kind:`) · `tools/gates/lib/spec-parse.mjs:96` (`deriveVerify`) · `tsconfig.base.json:13` · `apps/web/package.json:12` · `apps/web/vite.config.ts` · `docs/knowledge/testing.md` ("Perf and bundle size")
 **Raised:** 2026-11-01
 
 ## What is unproven
@@ -32,17 +32,21 @@ going green is not evidence that `apps/web` builds.
 
 ## Why it is safe right now
 
-- **A performance requirement has no legal spelling as an assertion.** With no `perf` kind and no
-  `deriveVerify` route for one, the only places such a sentence can land in a spec are `## Lights` (a
-  rule a reviewer or a light checks) or `## Syrup` (an item that never blocks a phase) — never a
-  `verify:` target. This is the same discipline as the browser lane (TD-0001): the lane that cannot
-  answer does not get to answer green. The qualifier is the same as everywhere else in this ledger:
-  `tools/gates/` holds `lib/` and nothing else, so the rule is today enforced by the template and a
-  reviewer, and `spec-gate` refusing the value is specified rather than observed (TD-0005).
-- **The absence is written down where a reader will meet it**, not only here:
-  `docs/knowledge/testing.md:219-220` states that there is no bench lane and that `vite build` is in
-  no verdict, and the UNVERIFIED list in `docs/knowledge/loop.md` carries the same line. So nobody
-  has to infer the gap from silence.
+- **A performance requirement has no legal spelling as an assertion.** `deriveVerify` is a four-case
+  switch over `core | api | web | e2e` and returns `null` for anything else
+  (`tools/gates/lib/spec-parse.mjs:96`), so the only places such a sentence can land in a spec are
+  `## Lights` (a rule a reviewer or a light checks) or `## Syrup` (an item that never blocks a phase)
+  — never a `verify:` target. This is the same discipline as the browser lane (TD-0001): the lane
+  that cannot answer does not get to answer green. The qualifier is narrower than it was:
+  `spec-gate` is written and checks that a live `Sn` carries a `kind` in the known set and a
+  `verify:` equal to the derived value to the character (`tools/gates/spec-gate.mjs:38`), so the
+  refusal is implemented rather than only specified — what nobody has watched is the refusal firing
+  on a spec that tried it.
+- **The absence is written down where a reader will meet it**, not only here: the "Perf and bundle
+  size" row of `docs/knowledge/testing.md` states that there is no bench lane and that `vite build`
+  is in no verdict, and the UNVERIFIED list in `docs/knowledge/loop.md` carries the same line. Both
+  are cited without a line number on purpose — they are prose under active revision, and a number
+  into a moving file is worse than none. So nobody has to infer the gap from silence.
 - **Nothing promises a figure**, so there is no stale promise to find — ADR-0003 makes a figure in a
   document a defect, and a reviewer removes it. An entry claiming "the build is fast" would be the
   dangerous state; an entry claiming nothing is the safe one.
@@ -54,11 +58,15 @@ going green is not evidence that `apps/web` builds.
 
 Two things, and the second is a decision rather than a run:
 
-1. **A bench run.** `vitest bench` is Vitest's own subcommand, so it should need no new dependency —
-   UNVERIFIED on this toolchain, nobody has invoked it here, and whether it writes an artifact a
-   gate can read is part of what the first run has to answer. The honest first step is a bench of a
-   `packages/core` function whose output lands in a run directory like any other artifact of record
-   (ADR-0002 item 2), so a reader sees a measurement rather than a claim.
+1. **A bench run — and it is no longer the cheap half.** This step used to read "the previous runner
+   ships a `bench` subcommand, so it should need no new dependency". That is gone with the runner: the
+   measured command surface of the runner of record carries no benchmarking subcommand, and **what a
+   bench lane would be built on here is UNVERIFIED** — nobody has named a tool, nothing has been
+   invoked, and whether it would write an artifact a gate can read is unanswered. What has not changed
+   is the shape the first run must have: a bench of a `packages/core` function whose output lands in a
+   run directory like any other artifact of record (ADR-0002 item 2), so a reader sees a measurement
+   rather than a claim. A new dependency for it is a `package:` trailer and a decision, not a
+   convenience.
 2. **A threshold file somebody agrees to maintain.** A number nobody owns rots into either a
    permanently red lane that gets skipped or a permanently green one that compares nothing — and
    both are worse than the current absence. Until a person commits to owning the file, **the honest

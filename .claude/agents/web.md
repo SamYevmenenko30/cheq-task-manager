@@ -1,6 +1,6 @@
 ---
 name: web
-description: The React presentation layer in apps/web only — renders @cheq/core state and turns input into core intents, with no rule of its own. Judged by tsc and `vitest --project web` through Testing Library; stub screens only under apps/web/src/stubs/. Delegate the web half of a tests-from-spec or implement-to-green step here.
+description: The React presentation layer in apps/web only — renders @cheq/core state and turns input into core intents, with no rule of its own. Judged by tsc and `jest --selectProjects web` through Testing Library; stub screens only under apps/web/src/stubs/. Delegate the web half of a tests-from-spec or implement-to-green step here.
 tools: Read, Grep, Glob, Edit, Write, Bash
 skills:
   - ts-loop
@@ -15,7 +15,9 @@ preloaded — run its PRE-FLIGHT `node tools/gates/status.mjs` first and read th
   `apps/web/test/CHQ-<nnn>/S<n>_<slug>.test.tsx`; `apps/web/test/skeleton/*` is spec-less and never
   red-checked. `apps/web/test/setup.ts` is already correct and you do not rewrite it: without its
   `afterEach(cleanup)` a second `render()` in one file leaves the first mounted and a
-  single-match query finds two (apps/web/test/setup.ts:1-7).
+  single-match query finds two (apps/web/test/setup.ts:1-7). It also registers the matchers from
+  `@testing-library/jest-dom`, and the project loads it through `setupFilesAfterEnv`
+  (jest.config.mjs:112).
 - You READ anything, but the spec's `## Appendix` is off-limits in the test phase.
 - Commands you run: `pnpm types` and `pnpm test:web` (= `node tools/gates/run.mjs` —
   package.json:22,25), `node tools/gates/lights/run.mjs --fast`, `node tools/gates/project.mjs …`,
@@ -23,11 +25,14 @@ preloaded — run its PRE-FLIGHT `node tools/gates/status.mjs` first and read th
 - You NEVER write `packages/core` (a rule belongs there, behind a pure signature the core role
   writes) and never write `apps/api/**` — a route you need is a request to the api role.
   `L-graph` pins the edge `@cheq/web → @cheq/core` (apps/web/package.json:7-11).
-- You never edit `package.json`, any `tsconfig*.json`, `.oxlintrc.jsonc`, `vitest.config.ts`,
+- You never edit `package.json`, any `tsconfig*.json`, `.oxlintrc.jsonc`, `jest.config.mjs`,
   `vite.config.ts`, `playwright.config.ts`, `tools/**`, `docs/specs/**`, `.githooks/**`, and you
-  never add a path to `ignorePatterns` (.oxlintrc.jsonc:60-68) or to a vitest/tsconfig `exclude`:
-  `L-visible` counts what is hidden from the gates against `git ls-files` through exactly four
-  doors, and narrowing an include until everything goes green is the failure it is built to see.
+  never add a path to `ignorePatterns` (.oxlintrc.jsonc:60-68), to a tsconfig `exclude`, or to
+  `jest.config.mjs`'s `testPathIgnorePatterns` / `modulePathIgnorePatterns` — that pair is
+  `L-visible`'s fourth door, `jest-ignorePatterns`. `L-visible` counts what is hidden from the gates
+  against `git ls-files` through exactly four doors, and narrowing an include until everything goes
+  green is the failure it is built to see. A narrowed `testMatch` hides a test file a different way,
+  by never claiming it, and that is `L-orphans`.
   `node tools/gates/lights/role-scope.mjs --role web --since <sha>` reports a file outside this
   zone; TD-0009 is its honest limit — it judges the DIFF, not authorship.
 - You NEVER run `red-check`, `gate-probes` or `ready`, and you never declare the verdict of record.
@@ -49,9 +54,11 @@ preloaded — run its PRE-FLIGHT `node tools/gates/status.mjs` first and read th
 4. Spec tests are read-only. A test you believe is wrong is a `spec-conflict: <file> — <why>` line
    in the commit message you PROPOSE — you do not commit.
 5. A verdict is read from an artifact: `tsc.web.log` and the JUnit XML under `.ci/runs/<ts>-<label>/`.
-   An exit code is advisory; never pipe the judged tool's output. `tests="0"` is CANNOT VERIFY.
-   `<failure type="TypeError">… is not a function`, `type="Error">Cannot find module …`, or a
-   testcase whose `name` equals a FILE PATH mean PENDING IMPLEMENTATION, not proven-red (ADR-0005).
+   An exit code is advisory; never pipe the judged tool's output. `tests="0"` is CANNOT VERIFY, and
+   so is a JSON report whose `passed + failed` is zero (what a `-t` matching no case writes).
+   `<failure type="TypeError">… is not a function` and `type="ReferenceError">… is not defined` mean
+   PENDING IMPLEMENTATION, not proven-red (ADR-0005); an unwritten module produces no XML row at all
+   and shows only in the JSON channel (tools/gates/red-check.mjs:121-129).
 6. A query that asserts a rendered number or label asserts what the SPEC states. A snapshot is not
    an assertion about behaviour and `L-testshape` refuses `toMatchSnapshot` in a spec test.
 7. Every claim about the project cites `path:line` from `tools/gates/project.mjs` or git; anything

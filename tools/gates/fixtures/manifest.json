@@ -1,75 +1,110 @@
 {
   "_note": "The provenance of every captured artifact under tools/gates/fixtures. Written by hand, read by tools/gates/probes/readers.mjs (and by its `the captured fixtures are present` self-check in probes/_harness.mjs). Every entry says the exact command that produced the file and whether the bytes are VERBATIM output (real: true) or a named edit of real output (real: false, with `derivedFrom` and `edit`). A fixture nobody can re-capture is a fixture nobody can trust, so re-capture is the cure for a stale one — never a hand edit. No seconds figure is promised anywhere here; the `time`/`start_time` fields inside an artifact are that artifact's own content.",
-  "capturedOn": "2026-11-01",
+  "capturedOn": "2026-11-02",
   "capturedWith": {
-    "vitest": "5.0.5",
+    "jest": "30.5.2",
+    "jest-junit": "17.0.0",
+    "jest-environment-jsdom": "30.5.2",
+    "@swc/jest": "0.2.39",
     "typescript": "7.0.2",
     "oxlint": "1.90.0",
     "oxlint-tsgolint": "7.0.2005"
   },
+  "runnerMigration": {
+    "_note": "The jest/* artifacts REPLACE the vitest/* set captured on 2026-11-01. They were re-captured rather than kept, because eighteen reader probes would otherwise assert a format this repository's runner no longer produces — the trap probes/_harness.mjs calls probing an imagined format. jest.config.mjs reproduces the file-path `classname` on purpose (classNameTemplate '{filepath}', titleTemplate '{classname} > {title}'), so the GREEN shape is unchanged; four MEASURED differences remain and each is written on the entry it belongs to.",
+    "measuredDifferences": [
+      "a `<failure>` written by jest-junit 17.0.0 carries NO `message` and NO `type` attribute — both live in the element BODY, whose first line is `<Type>: <message>` (see jest/all-failed.junit.xml)",
+      "a suite that failed to RUN produces no `<testsuite>` and no `<testcase>` at all, so the XML of a collection failure is shaped exactly like an empty run (see jest/collection-failure.junit.xml against jest/empty-run.junit.xml)",
+      "`it.todo` is a `<testcase>` with NO `<skipped/>` child, and the `tests`/`skipped` counters exclude it, while the JSON channel counts it in numTodoTests (see jest/skipped-only.*)",
+      "the runner's own collection, `jest --listTests --json`, is an array of absolute FILE paths — not one record per case, so it corroborates which project collects a file and says nothing about case names (see jest/list-core.json)"
+    ]
+  },
+  "commandShape": {
+    "_note": "Every `command` below is shorthand for this shape, run from the repository root. The JUnit path is NOT a flag: jest-junit is declared as a reporter in jest.config.mjs with no `outputFile` and takes its path from the ENVIRONMENT, so half of the artifact contract travels in env and `run.json` records it as `envExtra`.",
+    "argv": "node_modules/.bin/jest --selectProjects <project> --ci --runInBand --json --outputFile=<abs json> [--testPathPatterns <re>]",
+    "env": {
+      "JEST_JUNIT_OUTPUT_FILE": "<abs junit.xml>",
+      "NODE_OPTIONS": "--experimental-vm-modules",
+      "TZ": "UTC",
+      "LANG": "C",
+      "LC_ALL": "C",
+      "NO_COLOR": "1",
+      "CI": "1"
+    },
+    "measured": "without NODE_OPTIONS every test file dies with `Cannot use import statement outside a module`, which reads like a broken source and is not one. With JEST_JUNIT_OUTPUT_FILE unset, jest-junit writes ./junit.xml into the cwd — observed in this repository's root during the capture session, which is exactly why no caller may leave the path to a default."
+  },
   "sources": {
     "_note": "sha256 of the committed test sources a fixture was captured FROM. A probe that compares a stored artifact against a live source reads these first and SKIPS with `re-capture` when they disagree — a stale fixture must never read as a defect in the reader.",
-    "packages/core/test/skeleton/digest.test.ts": "86f0e36d44a363ea2533ae6f3e6ce1f78f3e14bc6e5b04a30c6d06d258083a79",
-    "packages/core/test/skeleton/marker.test.ts": "15cc0449e9e8ba884cb37b212d0da0facd0dea3c393a2929365a4267085b79d3"
+    "packages/core/test/skeleton/digest.test.ts": "3f84787e8225608af3a8ba55340b1923c4d9959646f6a17259c35e428ad16ce4",
+    "packages/core/test/skeleton/marker.test.ts": "3658cd2392703f8a9c89a5ea8bf29c44f90f97ec781f47282848cf0597b99709",
+    "apps/api/test/skeleton/marker.test.ts": "20d95a45b51e739329dd8430606f7bd5736b2d62e4a2bb3fb46fb33edf12cdb2"
+  },
+  "captureFixtures": {
+    "_note": "The four `packages/core/test/__cap/*.test.ts` files the jest/* artifacts were captured FROM. They are planted for the capture and removed in the same session, so they are not committed and their names survive only inside the artifacts and here. Each is listed with the situation it produces, so the capture can be repeated exactly.",
+    "packages/core/test/__cap/one.test.ts": "one passing case: `describe('the captured green case') > it('names the package')` asserting CORE_PACKAGE === '@cheq/core' against ../../src/index.ts",
+    "packages/core/test/__cap/failed.test.ts": "three failing cases in one describe('the three captured red signatures'): an honest `expect(...).toBe('@cheq/nope')`, a call of `core.completeTask()` which is not exported, and a bare `absentFn()` nobody wrote",
+    "packages/core/test/__cap/skipped.test.ts": "one `it.skip('is switched off')` and one `it.todo('is not written yet')` in describe('the captured skipped cases')",
+    "packages/core/test/__cap/collect.test.ts": "an import of ../../src/scheduling/schedule.ts, which does not exist, so the suite never runs"
   },
   "artifacts": {
-    "vitest/core-skeleton.junit.xml": {
+    "jest/core-skeleton.junit.xml": {
       "real": true,
-      "command": "vitest run --project core --reporter=junit --outputFile.junit=<abs>",
-      "note": "The committed tree's own core run: 17 cases over 2 files, all green. Carries the case `hashes \"abc\"` as `&quot;abc&quot;`, which is the XML side of the escaping measurement."
+      "command": "jest --selectProjects core --ci --runInBand --json --outputFile=<abs> --testPathPatterns 'test/skeleton/'",
+      "note": "The committed tree's own core run: 17 cases over 2 files, all green, exit 0. `classname` is the REPO-relative file path and `name` is `<describe> > <test>` — the shape jest.config.mjs's reporter templates reproduce. Carries the case `hashes \"abc\"` as `&quot;abc&quot;`, which is the XML side of the escaping measurement. `--testPathPatterns 'test/skeleton/'` scopes the run to the COMMITTED files: a bare `--selectProjects core` also collects whatever is planted under packages/core/test at capture time."
     },
-    "vitest/list-core.json": {
+    "jest/core-skeleton.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 17, numPassedTests 17. Every `testResults[].name` is an ABSOLUTE path (measured), which is why jsonCaseStatus matches a file by suffix." },
+    "jest/list-core.json": {
       "real": false,
-      "derivedFrom": "vitest list --json --project core",
-      "edit": "the absolute `file` values were made repo-relative; every `name` is verbatim, INCLUDING the double-escaped quote (`hashes \\\"abc\\\"` after JSON.parse) that is the whole point of this fixture",
-      "note": "The runner's own collection, the second enumerator. `name` is byte-identical to the JUnit `testcase name` only AFTER the backslash-escaped quote is unescaped — measured; the live absolute-path form is probed live, where it is honest."
+      "derivedFrom": "jest --selectProjects core --listTests --json --testPathPatterns 'test/skeleton/'",
+      "edit": "the absolute paths were made repo-relative; nothing else",
+      "note": "The runner's own collection. MEASURED and different from the previous runner: this is an array of test FILES, not one record per case, so it is the second answer to \"which project collects this file\" and no answer at all about case names. The prose line `Running one project: core` goes to STDERR, so stdout is pure JSON. The live absolute form is probed live, where it is honest."
     },
-    "vitest/one-passed.junit.xml": {
+    "jest/one-passed.junit.xml": {
       "real": true,
-      "command": "vitest run --project core --reporter=junit --reporter=json --outputFile.junit=<abs> --outputFile.json=<abs> --retry=0 --no-file-parallelism --passWithNoTests=false test/__cap/one",
-      "note": "One case, passed. Exit 0."
+      "command": "the commandShape above with --testPathPatterns 'test/__cap/one'",
+      "note": "One case, passed, exit 0. The ordinary green shape, and the baseline the mismatch pair is derived from."
     },
-    "vitest/one-passed.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 1, numPassedTests 1." },
-    "vitest/all-failed.junit.xml": {
+    "jest/one-passed.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 1, numPassedTests 1, success true." },
+    "jest/all-failed.junit.xml": {
       "real": true,
-      "command": "the same shape, over a file whose three cases fail differently",
-      "note": "The three measured red signatures in ONE artifact: AssertionError `expected '@cheq/core' to be '@cheq/nope'`, TypeError `completeTask is not a function`, ReferenceError `absentFn is not defined`. Exit 1."
+      "command": "the same shape with --testPathPatterns 'test/__cap/failed'",
+      "note": "The three red signatures in ONE artifact, exit 1 — AND the first measured difference from the previous runner: jest-junit writes `<failure>` with NO `message` and NO `type` ATTRIBUTE. The type and message are the first line of the element BODY: `Error: expect(received).toBe(expected) …`, `TypeError: core.completeTask is not a function`, `ReferenceError: absentFn is not defined`, each followed by the stack. parseJUnit therefore reads type='' and message='' for all three, and redReason answers `unknown` — recorded here as the artifact's own shape, not as a verdict about the reader."
     },
-    "vitest/all-failed.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 3, numFailedTests 3." },
-    "vitest/skipped-only.junit.xml": {
+    "jest/all-failed.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 3, numFailedTests 3. Here the type and message DO survive, inside assertionResults[].failureMessages[0]." },
+    "jest/skipped-only.junit.xml": {
       "real": true,
-      "command": "the same shape, over a file with one it.skip and one it.todo",
-      "note": "Two <testcase> elements, each with <skipped/>, suite skipped=\"2\", failures=\"0\" — and the run EXITS 0. The XML cannot tell .skip from .todo; the JSON channel can."
+      "command": "the same shape with --testPathPatterns 'test/__cap/skipped'",
+      "note": "MEASURED: `it.skip` becomes `<testcase><skipped/></testcase>`, and `it.todo` becomes a `<testcase>` with an EMPTY body — no `<skipped/>` child. The counters agree with that and not with the file: `<testsuites tests=\"1\">`, `<testsuite tests=\"1\" skipped=\"1\">`, two `<testcase>` elements. The run exits 0."
     },
-    "vitest/skipped-only.json": { "real": true, "command": "the same run's JSON channel", "note": "numPendingTests 1 + numTodoTests 1 = the XML's skipped 2 — the one place the distinction survives." },
-    "vitest/collection-failure.junit.xml": {
+    "jest/skipped-only.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 2, numPendingTests 1 (the .skip), numTodoTests 1 (the .todo) — the one channel that tells them apart, and the one that counts the .todo at all. `testResults[0].status` is \"focused\"; file status is not a verdict." },
+    "jest/collection-failure.junit.xml": {
       "real": true,
-      "command": "the same shape, over a file importing ../../src/scheduling/schedule.ts, which does not exist",
-      "note": "MEASURED signature: classname=\"packages/core/test/__cap/collect.test.ts\" (repo-relative) and name=\"test/__cap/collect.test.ts\" (project-relative). They are NOT equal, and name is not the basename either; `classname.endsWith('/' + name)` is what fires."
+      "command": "the same shape with --testPathPatterns 'test/__cap/collect'",
+      "note": "MEASURED signature, and the second difference from the previous runner: a suite that failed to RUN produces NO `<testsuite>` and NO `<testcase>`. The whole artifact is `<testsuites name=\"jest tests\" tests=\"0\" failures=\"0\" errors=\"0\">` — shaped exactly like jest/empty-run.junit.xml, while the run exits 1. There is no synthetic testcase whose classname/name pair could be compared, so the suffix form isCollectionFailure() looks for cannot occur in a jest artifact at all."
     },
-    "vitest/collection-failure.json": {
+    "jest/collection-failure.json": {
       "real": true,
       "command": "the same run's JSON channel",
-      "note": "MEASURED and previously unmeasured (TD-0005/TD-0012): numTotalTests 0, testResults[0] with status failed, a message, and assertionResults []. So the JSON channel of a run whose ONLY file failed to collect is itself CANNOT VERIFY by the numTotalTests rule."
+      "note": "The ONLY channel that sees the failure: numRuntimeErrorTestSuites 1, numFailedTestSuites 1, numTotalTests 0, success false, and testResults[0] with status \"failed\", assertionResults [] and the resolver's message. So the file that never loaded is nameable from the JSON and from nowhere else."
     },
-    "vitest/empty-run.junit.xml": {
+    "jest/empty-run.junit.xml": {
       "real": true,
-      "command": "the same shape with --passWithNoTests=true and a filter matching nothing",
-      "note": "MEASURED: tests=\"0\", a well-formed report, and the run EXITS 0. This is the silent green that `tests=\"0\" ⇒ CANNOT VERIFY` exists for."
+      "command": "the same shape with --passWithNoTests and --testPathPatterns 'test/__cap/nothing-matches-this'",
+      "note": "MEASURED: tests=\"0\", a well-formed report, and the run EXITS 0. This is the silent green that `tests=\"0\" ⇒ CANNOT VERIFY` exists for. --passWithNoTests is what makes the exit 0; it exists in Jest 30.5.2 and is the flag tools/gates/run.mjs refuses a caller for passing, and never passes itself — without it this same filter exits 1."
     },
-    "vitest/empty-run.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 0, testResults [], and \"success\": true." },
-    "vitest/foreign-file.junit.xml": {
+    "jest/empty-run.json": { "real": true, "command": "the same run's JSON channel", "note": "numTotalTests 0, testResults [], and \"success\": true." },
+    "jest/foreign-file.junit.xml": {
       "real": true,
-      "command": "node tools/gates/run.mjs test --kind api",
+      "command": "jest --selectProjects api --ci --runInBand --json --outputFile=<abs>  (the api project whole, no filter)",
       "note": "A real run of ANOTHER project: every classname is under apps/api. Asked about a core file, a reader must answer CANNOT VERIFY rather than reading somebody else's green."
     },
-    "vitest/foreign-file.json": { "real": true, "command": "the same run's JSON channel" },
-    "vitest/counter-mismatch.junit.xml": { "real": true, "command": "a byte copy of vitest/one-passed.junit.xml", "note": "The XML half of the disagreement pair: tests=\"1\"." },
-    "vitest/counter-mismatch.json": {
+    "jest/foreign-file.json": { "real": true, "command": "the same run's JSON channel" },
+    "jest/counter-mismatch.junit.xml": { "real": true, "command": "a byte copy of jest/one-passed.junit.xml", "note": "The XML half of the disagreement pair: tests=\"1\"." },
+    "jest/counter-mismatch.json": {
       "real": false,
-      "derivedFrom": "vitest/one-passed.json",
+      "derivedFrom": "jest/one-passed.json",
       "edit": "numTotalTests and numPassedTests raised from 1 to 2",
-      "note": "The toolchain has never been observed producing two channels that disagree (TD-0005), so this fixture is the ONLY way to exercise crossCheck's refusal. It is derived, and it says so."
+      "note": "No run has been observed producing two channels that disagree about a well-formed run (TD-0005), so this fixture is the ONLY way to exercise crossCheck's refusal on a counter. The ONE real disagreement this toolchain does produce — a .todo counted by the JSON and not by the XML — is in jest/skipped-only.* and needs no derivation."
     },
     "tsc/core-clean.listfiles.log": {
       "real": true,

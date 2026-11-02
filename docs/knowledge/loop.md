@@ -2,20 +2,26 @@
 
 How an agent gets fast, truthful feedback from this repository: which command to run, what it reads
 back, and what it must not trust. The stack is node 22, pnpm 9, TypeScript 7 (the native compiler),
-Vitest 5 and oxlint — one type engine, four test projects, one wrapper that writes the artifacts a
-verdict is read from.
+Jest 30 with the `@swc/jest` transform, and oxlint — one type engine, four test projects, one wrapper
+that writes the artifacts a verdict is read from.
 
 **In this stack the danger is the opposite of a noisy tool: a successful `tsc` prints NOTHING.**
 Silence looks exactly like green, and so does a run that never happened. Therefore: *silence is not
 a marker — the wrapper writes its own*, and every reader needs a positive sign that the tool really
-read something (`filesChecked > 0`, `tests > 0`, `number_of_files > 0`) before it may say green.
+read something (`filesChecked > 0`, `tests > 0`, `number_of_files > 0`, and for the test runner
+`passed + failed > 0`, because a filter that matched no case exits 0 and calls itself a success)
+before it may say green.
 A missing artifact is CANNOT VERIFY, never green (ADR-0002 in [docs/decisions/](../decisions/)).
 
 Provenance marks, used on every fact below:
 
-- **(m)** — measured on this Mac on 2026-11-01 with the command named. Where the artifact survives,
-  its path is given; those under `.ci/` are gitignored (`.gitignore:10`) and will not exist in a fresh
-  clone, which is why the shapes are transcribed here instead of linked.
+- **(m)** — measured on this Mac with the command named. Two dates matter and they are never merged:
+  **2026-11-02** is the runner of record, and **2026-11-01** is the stack as it stood before the
+  runner changed. A dated 2026-11-01 measurement of the PREVIOUS runner is kept where it explains why
+  something is built the way it is, marked `(m, previous runner)`, and it is never re-dated to look
+  like a measurement of this one. Where the artifact survives, its path is given; those under `.ci/`
+  are gitignored (`.gitignore:10`) and will not exist in a fresh clone, which is why the shapes are
+  transcribed here instead of linked.
 - **(d)** — documented: a `path:line` in this repository, or a URL.
 - **UNVERIFIED** — nobody has seen it on this machine. Part 4 lists these.
 
@@ -33,12 +39,15 @@ source. The flags are READ, never assumed, and nothing else in this repository m
 | `WATCHERS` > 0 | a run of record in the main checkout is FORBIDDEN (a watcher shares state with it); advisory reads are labelled `mode=watcher-running(UNVERIFIED)` |
 | `BROWSER_PROBE=absent` | `kind: e2e` gets no test, no run and no `green:` — the lane is CANNOT VERIFY (TD-0001; `playwright.config.ts:3-5`) |
 | `LOCKFILE_CLEAN=false` | `--record` refuses: a run pinned to a tree whose dependency graph is uncommitted proves nothing |
-| the hook-existence flag | `core.hooksPath` does not resolve to `.githooks` — commits are passing unchecked. `status.mjs` names this flag; the four above are fixed names |
+| `JEST=unavailable` | the runner of record is not in `node_modules/.bin` — this checkout is not installed, and a global `jest` on PATH would be a different engine than the lock names. `status.mjs` prints the premise under this key (`tools/gates/status.mjs:77`) |
 
-`status.mjs` and the gates it reports on are part of commit 1 of this repository (process.md,
-"Commit sequence"). The script names in the table below are the ones `package.json:11-27` already
-binds; where a gate's actual output disagrees with this file, **the gate is right and this file is
-the defect**, fixable in the same commit (AGENTS.md rule 12).
+`status.mjs` prints `NODE`, `PNPM`, the four tool premises (`TSC`, `OXLINT`, `TSGOLINT`, `JEST`),
+`LOCKFILE_CLEAN`, `INSTALLED_LOCK`, `TREE_CLEAN`, `WATCHERS`, `CI_LOCK`, `CI_TREE_READY`,
+`BROWSER_PROBE`, `GENERATED_FRESH` and `BUDGETS`. It does **not** report whether the pre-commit hook
+is installed — that is UNVERIFIED from the pre-flight, so check `git config core.hooksPath` by hand
+if a commit went through suspiciously fast. The script names in the table below are the ones
+`package.json:31-49` already binds; where a gate's actual output disagrees with this file, **the gate
+is right and this file is the defect**, fixable in the same commit (AGENTS.md rule 12).
 
 ## Part 1 — the loop table
 
@@ -46,26 +55,31 @@ the defect**, fixable in the same commit (AGENTS.md rule 12).
 |---|---|---|---|---|
 | 1 | inspect the project as text | `node tools/gates/project.mjs packages \| config <pkg> \| exports <pkg> \| routes \| imports <file>`; generated projections under `docs/digests/` FIRST; `git log --oneline -20 -- <paths>` | the effective compiler options, the export surface, the import graph, route table — as `path:line` a spec may cite (AGENTS.md rule 4) | a digest as proof that the code typechecks; **`tsconfig.json` as TEXT** — `extends` hides the effective value, so quote `project.mjs config <pkg>`, which is the `tsc --showConfig` answer (m: `--showConfig -p packages/core/tsconfig.json` exits 0 and prints `lib: ["es2023"]`, `types: []` resolved) |
 | 2 | edit | Write / Edit | — | that a file you added is in any project: step 3 or `L-orphans` says so |
-| 3 | types, fast | `pnpm exec tsc --noEmit --pretty false -p <pkg>/tsconfig.json` | `path(line,col): error TSxxxx: msg` lines, one per diagnostic (m, 4 planted diagnostics in `.ci/probe-junit/tsc.bad.log`); nothing at all when clean (m: core exits 0 with 0 bytes of output) | anything about another package — each project is typechecked alone; anything Vitest will do at runtime (Vitest typechecks NOTHING); exit 0 as "it read my files" — add `--listFiles` for that |
-| 4 | tests, fast | `pnpm exec vitest run --project <core\|core-dom\|api\|web> [<repo-relative path>.test.ts]` — the positional path filters even though each project sets its own `root` (m: `--project core packages/core/test/skeleton/marker.test.ts` ran 1 file, 1 test) | per-case pass/fail on the terminal | a green from a filter that matched nothing (step 4's biggest lie — Part 3); `-t` as a selector (substring match); this as a verdict of record |
+| 3 | types, fast | `pnpm exec tsc --noEmit --pretty false -p <pkg>/tsconfig.json` | `path(line,col): error TSxxxx: msg` lines, one per diagnostic (m, 4 planted diagnostics in `.ci/probe-junit/tsc.bad.log`); nothing at all when clean (m: core exits 0 with 0 bytes of output) | anything about another package — each project is typechecked alone; anything the test runner will do at runtime (**the runner typechecks NOTHING** — `@swc/jest` strips types in Rust); exit 0 as "it read my files" — add `--listFiles` for that |
+| 4 | tests, fast | `NODE_OPTIONS=--experimental-vm-modules pnpm exec jest --selectProjects <core\|core-dom\|api\|web> [<repo-relative path>]` — a positional argument is a REGEX over the test path, so it matches a path FRAGMENT: `…/test/skeleton` collected two files, and a pattern nobody wrote exited 1 and wrote a `tests="0"` report (m, recorded at `tools/gates/red-check.mjs:65-78`) | per-case pass/fail on the terminal | a green from a filter that matched nothing (step 4's biggest lie — Part 3); `-t` as an exact selector (it is an unanchored match over the full case name, `red-check.mjs:59-61`); this as a verdict of record; the run without `NODE_OPTIONS` — every test then dies with `Cannot use import statement outside a module`, which reads like a broken source and is not one |
 | 5 | lint, fast | `pnpm exec oxlint --type-aware` | diagnostics with rule ids of the form `plugin(rule-name)` | a run WITHOUT `--type-aware`: the type-aware rules silently do not run (m: `number_of_rules` 243 with the flag, 211 without, same tree, both exit 0) ; lint as a verdict about types — it never is |
-| 6 | dev server / IDE language service | `pnpm dev:web`, `pnpm dev:api` (`package.json:28-29`) | a running app, a browser console | as evidence, EVER: it is advisory. A watch artifact older than your edit is STALE, and a dev server resolves imports by Vite's rules, not the compiler's |
-| 7 | types OF RECORD | `node tools/gates/run.mjs types --kind <core\|api\|web\|all>` (`package.json:22`) | `.ci/runs/<ts>-<label>/tsc.<kind>.log` + `run.json` (argv, exit code, seconds, head sha) | the exit code (Part 3: it lied); a clean log with no positive sign that files were read |
-| 8 | tests OF RECORD | `node tools/gates/run.mjs test --kind <kind> --label <l>` (`package.json:23-25`) | `.ci/runs/<ts>-<label>/<kind>.junit.xml` + `<kind>.json` + `tsc.<kind>.log` + `run.json` — BOTH halves every time, because Vitest does not typecheck | the exit code; `tests="0"`; a `<skipped/>` case; a case whose `classname` is outside the kind's project; `success: true` in the JSON (m: a run that executed nothing prints exactly that) |
-| 9 | the browser lane | `node tools/gates/run.mjs e2e --label <l>` (`package.json:26`) | nothing yet — it refuses while `.ci/probe.json` lacks `browser_probe: "pass"` (`playwright.config.ts:3-5`) | any e2e claim at all: the browsers are not downloaded (m), so this lane is CANNOT VERIFY, never red and never green (TD-0001) |
-| 10 | lint OF RECORD | `node tools/gates/run.mjs lint --label <l>` (`package.json:27`) | `.ci/runs/<ts>-<label>/oxlint.json` + `run.json` recording that `--type-aware` was in `argv` | a JSON file that did not parse — on a config error oxlint writes PLAIN TEXT to stdout (m, below) |
-| 11 | gates | `node tools/gates/ready.mjs [--quick]` (`package.json:16-17`) | the verification block; `NOT READY` on any step ≠ 0 | a gate that did not run; a green a gate cannot explain; `--quick` as the check of record (it reads HEAD, not the index — `.githooks/pre-commit:2-7`) |
+| 6 | dev server / IDE language service | `pnpm dev:web`, `pnpm dev:api` (`package.json:48-49`) | a running app, a browser console | as evidence, EVER: it is advisory. A watch artifact older than your edit is STALE, and a dev server resolves imports by Vite's rules, not the compiler's |
+| 7 | types OF RECORD | `node tools/gates/run.mjs types --kind <core\|api\|web\|all>` (`package.json:42`) | `.ci/runs/<ts>-<label>/tsc.<kind>.log` + `run.json` (argv, exit code, seconds, head sha) | the exit code (Part 3: it lied); a clean log with no positive sign that files were read |
+| 8 | tests OF RECORD | `node tools/gates/run.mjs test --kind <kind> --label <l>` (`package.json:43-45`) | `.ci/runs/<ts>-<label>/<kind>.junit.xml` + `<kind>.json` + `tsc.<kind>.log` + `run.json` — BOTH halves every time, because the runner does not typecheck | the exit code; `tests="0"`; a `<skipped/>` case; a case whose `classname` is outside the kind's project; `success: true` in the JSON (m: a run that executed no case prints exactly that); a `run.json` whose `envExtra` does not carry `JEST_JUNIT_OUTPUT_FILE` — half the artifact contract is in the environment |
+| 9 | the browser lane | `node tools/gates/run.mjs e2e --label <l>` (`package.json:46`) | nothing yet — it refuses while `.ci/probe.json` lacks `browser_probe: "pass"` (`playwright.config.ts:3-5`) | any e2e claim at all: the browsers are not downloaded (m), so this lane is CANNOT VERIFY, never red and never green (TD-0001) |
+| 10 | lint OF RECORD | `node tools/gates/run.mjs lint --label <l>` (`package.json:47`) | `.ci/runs/<ts>-<label>/oxlint.json` + `run.json` recording that `--type-aware` was in `argv` | a JSON file that did not parse — on a config error oxlint writes PLAIN TEXT to stdout (m, below) |
+| 11 | gates | `node tools/gates/ready.mjs [--quick]` (`package.json:36-37`) | the verification block; `NOT READY` on any step ≠ 0 | a gate that did not run; a green a gate cannot explain; `--quick` as the check of record (it reads HEAD, not the index — `.githooks/pre-commit:2-7`) |
 
 WHERE THINGS LAND: every run of record writes its own directory `.ci/runs/<ts>-<label>/`, never
-reused, with `run.json` holding the exact argv, the tool's own exit code, the seconds and the head
-sha. `.ci/` is gitignored (`.gitignore:10`), so a `green:` trailer names a path that exists only on
-this machine, and `ready.mjs` prints `(artifact present)` / `(ARTIFACT MISSING)` rather than assuming.
-`.vitest/` is Vitest's own dump (`.gitignore:25`) and no gate reads it.
+reused, with `run.json` holding the exact argv, **the environment the wrapper added (`envExtra`)**,
+the tool's own exit code, the seconds and the head sha. `.ci/` is gitignored (`.gitignore:10`), so a
+`green:` trailer names a path that exists only on this machine, and `ready.mjs` prints
+`(artifact present)` / `(ARTIFACT MISSING)` rather than assuming. The runner of record writes no
+in-repo cache directory of its own; `--coverage` lands in `coverage/`, gitignored at
+`.gitignore:11`, and no gate reads it.
 
 RULES THE LOOP CARRIES: never pipe the output of the tool being judged (Part 3); capture the tool's
-exit code on its own and treat it as advisory; always ask for the artifact by name on the command
-line; never `--passWithNoTests`; never `--watch`, `-u` or `--retry > 0` for a verdict; never
-`git commit --no-verify`; one run of record at a time (`.ci/lock`).
+exit code on its own and treat it as advisory; ask for the JSON artifact by name with ONE bare
+`--outputFile=<path>` and steer the JUnit one with `JEST_JUNIT_OUTPUT_FILE` — never the dotted
+`--outputFile.<reporter>=` form, which this runner swallows in silence (Part 3); never
+`--passWithNoTests`; never `--watch` or `-u` for a verdict, and `--ci` on every run of record so a
+missing snapshot cannot be written into existence; never `git commit --no-verify`; one run of record
+at a time (`.ci/lock`).
 
 ## Part 2 — how to read each artifact
 
@@ -76,68 +90,93 @@ One reader per format, under `tools/gates/lib/`. Nothing else parses these files
 Shape, measured (m) from `.ci/runs/…/core.junit.xml` and the probe run in `.ci/probe-junit/out.junit.xml`:
 
 ```
-<testsuites name="vitest tests" tests="17" failures="0" errors="0" time="0.035891882">
+<testsuites name="…" tests="17" failures="0" errors="0" time="0.035891882">
   <testsuite name="packages/core/test/skeleton/digest.test.ts" timestamp="…" hostname="…"
              tests="16" failures="0" errors="0" skipped="0" time="…">
     <testcase classname="packages/core/test/skeleton/digest.test.ts"
               name="sha256 against the published vectors &gt; hashes the empty string" time="…"/>
 ```
 
+The file-path spelling of `name` and `classname` is NOT the reporter's default — it is bought by four
+templates in the config, and they are load-bearing rather than cosmetic: `classNameTemplate:
+'{filepath}'`, `titleTemplate: '{classname} > {title}'`, `ancestorSeparator: ' > '`,
+`suiteNameTemplate: '{filepath}'` (`jest.config.mjs:75-78`). They reproduce the previous runner's
+artifact shape exactly, which is why every reader in `tools/gates/lib` parses this file unchanged —
+**the FORMAT is what those modules know, not the producer**. Delete a template and the `classname`
+becomes the describe block, and every reader, every probe over them and the collection-failure
+predicate all stop meaning what they say. The `<testsuites name>` attribute is the reporter's own and
+no gate reads it.
+
 - `classname` is the file path from the repository root; `name` is `"<describe> > <test>"`, joined by
   ` &gt; ` — the entity, not a literal `>`. Decode `&amp; &lt; &gt; &quot; &apos;` before comparing a
   name with a declared case name (m: a case named `fails an honest assertion <&>` came back as
   `probe &apos;assert&apos; &gt; fails an honest assertion &lt;&amp;&gt;`).
 - **`<testsuites>` carries no `skipped` attribute — only each `<testsuite>` does.** So the passed
-  count is `tests − failures − errors − Σ skipped`, never `tests − failures`. (m: a `-t` filter that
-  matched nothing produced `tests="17" failures="0"` with `skipped="16"` + `skipped="1"` and a
-  `<skipped/>` child in every `<testcase>`, exit 0.)
+  count is `tests − failures − errors − Σ skipped`, never `tests − failures`
+  (`tools/gates/lib/junit-xml.mjs:13`, `:159`).
 - Verdict rules: file absent ⇒ CANNOT VERIFY · `tests="0"` ⇒ CANNOT VERIFY · a `classname` outside
   the kind's own project ⇒ CANNOT VERIFY (foreign project) · any `<skipped/>` among the cases a spec
   declared ⇒ CANNOT VERIFY · otherwise green/red from `failures`/`errors`.
-- **Four `<failure type>` signatures, each planted and read back** (m):
-  `AssertionError` + `expected 'a' to be 'b' // Object.is equality` — an honest assertion, the only
-  one that is proof · `TypeError` + `completeTask is not a function` — the module is there and the
-  export is not · `ReferenceError` + `absentFn is not defined` — the identifier was never imported
-  or declared at all, which is what a spec test calling an unwritten function actually produces ·
-  `Error` + `Cannot find module '…' imported from …` — collection never reached a case. **The two
-  middle ones are one defect by two roads**; a reader that knows only the `TypeError` form drops the
-  commonest shape of the test phase into "red for a reason I cannot name"
-  (`tools/gates/lib/junit-xml.mjs:314-334`). A fifth is not about the code under test:
+- **Four `<failure type>` signatures, each planted and read back (m, previous runner, 2026-11-01)**:
+  `AssertionError` — an honest assertion, the only one that is proof · `TypeError` +
+  `… is not a function` — the module is there and the export is not · `ReferenceError` +
+  `… is not defined` — the identifier was never imported or declared at all, which is what a spec
+  test calling an unwritten function actually produces · `Error` + `Cannot find module '…'` —
+  collection never reached a case. **The two middle ones are one defect by two roads**; a reader that
+  knows only the `TypeError` form drops the commonest shape of the test phase into "red for a reason
+  I cannot name" (`tools/gates/lib/junit-xml.mjs:314-334`). A fifth is not about the code under test:
   `Error` + `Cannot find package '@cheq/core' …` means the worktree was never installed ⇒ CANNOT
   VERIFY, never pending.
-- **Collection failure** — the import of the test module threw, so no case ever ran. One
-  `<testcase>` stands for the whole file, carrying the same file in TWO spellings: `classname` from
-  the repository root, `name` from that project's own `root`. Both spellings were measured —
-  `classname=".ci/probe-junit/c-module.test.ts" name="c-module.test.ts"` and
-  `classname="packages/core/test/__v/b.test.ts" name="test/__v/b.test.ts"` — with
-  `<failure type="Error" message="Cannot find module './nope/schedule.ts' imported from …">`.
+  **This table is the vocabulary the readers expect, not a measurement of the runner of record.**
+  `tools/gates/red-check.mjs:113-120` records (m, 2026-11-02) that this reporter writes the failure
+  text as the element BODY and emits **no `type` and no `message` attribute**, so `redReason` matches
+  the closed set against an empty string, answers `unknown`, and red-check cannot print
+  `✓ red on base` at all. That is fail-closed, not wrong — and until `lib/junit-xml.mjs` learns the
+  body form, **an assertion-red verdict is UNVERIFIED on this runner**. Do not "confirm" red by
+  reading the console; read the artifact and accept CANNOT VERIFY.
+- **Collection failure** — the import of the test module threw, so no case ever ran. On the previous
+  runner one `<testcase>` stood for the whole file, carrying the same file in TWO spellings:
+  `classname` from the repository root, `name` from that project's own `root` — e.g.
+  `classname="packages/core/test/__v/b.test.ts" name="test/__v/b.test.ts"` (m, previous runner).
   **The predicate is `classname.endsWith('/' + name)`, NOT `name === classname` and NOT
-  `name === basename(classname)`** — the second example makes both equalities false, and the slash
-  is load-bearing (`b.test.ts` must not match `…/ab.test.ts`). The fallback, independent of either
+  `name === basename(classname)`** — that example makes both equalities false, and the slash is
+  load-bearing (`b.test.ts` must not match `…/ab.test.ts`). The fallback, independent of either
   spelling: a `name` with no ` > ` separator that ends in a test-file extension is a file, not a case
   (`tools/gates/lib/junit-xml.mjs:219-246`). With the roots this repository configures —
-  `./packages/core`, `./apps/api`, `./apps/web` (`vitest.config.ts:21,32,40,48`) — an equality would
+  `./packages/core`, `./apps/api`, `./apps/web` (`jest.config.mjs:89,96,103,110`) — an equality would
   never fire, and a file that never parsed would be read as an ordinary red case.
+  **On the runner of record there is nothing for that predicate to match.**
+  `tools/gates/red-check.mjs:121-130` records (m, 2026-11-02) that a file which failed to collect
+  gets **no `<testsuite>` row in the XML at all** and is counted only in the JSON channel
+  (`status: "failed"`, `assertionResults: []`, message `Test suite failed to run`). So the
+  cross-channel arithmetic below no longer closes on such a run, and the commonest shape of the test
+  phase — a new test importing an unwritten module — reaches red-check as CANNOT VERIFY through the
+  channel-disagreement branch. Blocking is the right answer to a premise nobody has re-measured.
 
-### Vitest JSON — `lib/vitest-json.mjs`
+### The runner's JSON report — `lib/jest-json.mjs`
+
+The module keeps the previous runner's filename and reads this one's `--json` report unchanged,
+because the FORMAT is what it knows, not the producer. Its name is a wart, not a claim.
 
 The second channel, and on two points it is the BETTER one. Top-level keys (m):
 `numTotalTestSuites, numPassedTestSuites, numFailedTestSuites, numPendingTestSuites, numTotalTests,
 numPassedTests, numFailedTests, numPendingTests, numTodoTests, snapshot, startTime, success,
 testResults`.
 
-- Cross-check the XML on test COUNTS only. The `core` run read `numTotalTestSuites: 7` in JSON while
-  the XML had 2 `<testsuite>` elements — the JSON counts each file's suite **plus** every `describe`
-  (2 files + 5 `describe` blocks = 7; `digest.test.ts:10,36,46,76` and `marker.test.ts:8`), the XML
-  counts files (m). A gate comparing suite counts across channels fails on a green tree.
-- `fullName` in JSON joins describe and title with a **space**; XML joins them with ` > ` (m). Two
-  separators, one run — normalise or compare counts, never raw strings across channels.
+- Per file the record is `{ name, status, message, assertionResults: [{ ancestorTitles, fullName,
+  title, status, … }] }`, and **`name` is an ABSOLUTE path** while the XML's `classname` is
+  repository-relative. Join on the suffix, never on equality.
+- Cross-check the XML on test COUNTS only, and **not on suite counts**: the JSON counts each file's
+  suite *plus* every `describe`, the XML counts files, so the two numbers legitimately differ on a
+  green tree (`tools/gates/lib/jest-json.mjs:208`). A gate comparing them fails on a clean run.
+- `fullName` in JSON joins ancestors with a **space** (`"D row 1 is a"`); the XML's `name` joins them
+  with the configured ` > ` separator. Two spellings, one run — so a name taken from one channel is
+  not a key in the other. `crossCheck` compares COUNTS and is unaffected.
 - A collection failure is unmistakable here: the file record is `{"status":"failed",
-  "assertionResults":[]}` with a message — failed with zero cases (m, `.ci/probe-junit/out.json`).
-  **Its cases are missing from `numTotalTests` altogether**, while the XML emits a synthetic
-  `<testcase>` for the file and counts it. So the two channels reconcile only through identities that
-  count the collection failures explicitly (m, twice, on independent runs — the second a live run
-  with one collection failure):
+  "assertionResults":[]}` with a message, and **its cases are missing from `numTotalTests`
+  altogether**. The three identities that reconcile the channels by counting those failures
+  explicitly, never through a raw `tests === numTotalTests`, are
+  `tools/gates/lib/jest-json.mjs:201-203`:
 
   ```
   XML tests    === JSON numTotalTests  + collection failures
@@ -147,21 +186,27 @@ testResults`.
 
   A gate that compares `tests` with `numTotalTests` directly is therefore not strict, it is WRONG,
   and it is wrong on exactly the runs the test phase consists of. The third identity is also the only
-  place the `.skip` / `.todo` distinction survives, the XML writing `<skipped/>` for both.
-  `crossCheck` implements all three (`tools/gates/lib/vitest-json.mjs:165-175`) and has answered
-  `agree: true` on a green run and on a red one.
+  place the `.skip` / `.todo` distinction survives, the XML writing `<skipped/>` for both. The
+  identities were measured on the PREVIOUS runner's artifacts (m, 2026-11-01, twice on independent
+  runs); whether they close on this runner is UNVERIFIED, because this one omits an uncollected
+  file's XML row entirely (`tools/gates/red-check.mjs:121-130`) — which the first two identities
+  would read as a disagreement, i.e. CANNOT VERIFY.
 - **`crossCheck` returns `{ ok, agree, verdict: 'agree' | 'cannot-verify' }`** — `agree`, not a
   verdict about tests, because the question it answers is "do these two artifacts describe the same
   run?". Two channels agreeing that three tests failed is a RED run with agreeing channels, so a
   field named `verdict` holding `'green'` would be misread by everyone who wrote
   `if (… === 'green')`. The verdict about tests comes from `fileVerdict` in `junit-xml.mjs` and
-  nowhere else (`vitest-json.mjs:179-187`).
-- Skip and todo are DISTINCT here (`status: "skipped"` vs `"todo"`) and identical in the XML, where
-  both render `<skipped/>` (m). A file whose only cases are skipped reads file-level
-  `status: "passed"` (m) — which is why `skipped` is counted, not inferred.
-- `success: true` means "the process is content", not "something was verified": a run whose filter
-  matched nothing printed `numTotalTests: 17, numPassedTests: 0, numPendingTests: 17, success: true`
-  (m). `numPendingTests > 0` over declared cases ⇒ CANNOT VERIFY.
+  nowhere else (`jest-json.mjs:210-221`).
+- Skip and todo are DISTINCT here (`status: "skipped"` vs `"todo"`, and `test.todo` emits a record
+  with status `"todo"`) and identical in the XML, where both render `<skipped/>` — which is why
+  `skipped` is counted, not inferred.
+- **`success: true` means "the process is content", not "something was verified".** Measured on
+  `core` with a `-t` pattern matching no case: exit 0, `success: true`, `numTotalTests: 17`,
+  `numPassedTests: 0`, `numFailedTests: 0`, `numPendingTests: 17`. Every case is reported PENDING and
+  the run calls itself a success, so `numTotalTests` does not catch it and neither does any flag —
+  `--passWithNoTests` governs whether test FILES were found, and they were. **The guard is in the
+  READER:** `readJestJson` refuses any report where `passed + failed === 0`, because a run that
+  executed no case says nothing about the code (`tools/gates/lib/jest-json.mjs:79-92`, `:167-174`).
 
 ### tsc log — `lib/tsc-log.mjs`
 
@@ -214,9 +259,16 @@ Shape (m, `.ci/probe-junit/oxlint.bad.json` and a clean run of the whole tree):
 
 ## Part 3 — the agent playbook (traps, each one paid for)
 
-**Measured in this repository, 2026-11-01.** A bullet that names its command was re-observed while
-this file was written; a bullet without one was measured in the session that assembled this toolchain
-and is recorded there. Where the two could disagree, re-run it and correct this file (rule 12).
+**Measured in this repository.** Every trap about the runner of record was measured on 2026-11-02 and
+its header is cited; the rest was measured on 2026-11-01, and where that belongs to the PREVIOUS
+runner the bullet says so instead of pretending otherwise. Where any two could disagree, re-run it and
+correct this file (rule 12).
+
+The five traps that cost this toolchain the most are the five in the wrapper's own header
+(`tools/gates/run.mjs:16-55`), and all five are below: the artifact path that travels in the
+ENVIRONMENT, the dotted `--outputFile` that is swallowed in silence, `oxlint` without
+`--type-aware`, a runner that does not typecheck, and a `-t` filter that matches nothing and calls
+itself a success.
 
 - **`cmd | head` reports the exit code of `head`.** Measured twice while the toolchain was assembled
   (`eslint … | head` said 0 while eslint had crashed with 2; `tsc … | head -12` said 0 over four
@@ -224,33 +276,61 @@ and is recorded there. Where the two could disagree, re-run it and correct this 
   `exit=0` through a pipe and `exit=1` on its own. No gate pipes the output of the tool it judges;
   the exit code is captured alone and written to `run.json`, and the verdict still comes from the
   artifact.
-- **Two `--outputFile` forms in one Vitest command CRASH the run.** The obvious spelling
-  `--reporter=junit --outputFile=<x.xml> --reporter=json --outputFile.json=<y.json>` dies with
-  `TypeError: Cannot create property 'json' on string '<x.xml>'`, exit 1, and **writes no artifact at
-  all** (m, vitest 5.0.5). Both must use the dotted form:
-  `--outputFile.junit=<x.xml> --outputFile.json=<y.json>` (m: exit 0, both files written).
-- **`outputFile` inside a `projects` entry is IGNORED** — the reports land in Vitest's own `.vitest/`
-  instead. The artifact is asked for on the command line, which is better anyway: the gate names the
-  file it will read (m; encoded as a comment at `vitest.config.ts:3-7`).
-- **A filter that matches nothing is green and loud about nothing.** `-t 'S9_…'` with no match:
-  exit 0, `tests="17" failures="0"`, every case `<skipped/>`, JSON `numPassedTests: 0,
-  numPendingTests: 17, success: true` (m). Three guards, all required: `--passWithNoTests=false`
-  always; `n/a` decided from the SOURCES before the run (`lib/test-project.mjs`); the case count
-  compared with the enumerator's.
-- **`-t` is a substring match** — `-t "adds a task"` also selects `"adds a task twice"`. The honest
-  filter is the file PATH; selection among cases is done on the artifact, by exact name.
-- **`vitest list --json` double-escapes a quote; the XML does not.** Measured: exit 0 and an array of
-  `{ name, file, projectName, location: { line, column } }`, `file` ABSOLUTE, and `name` in the same
-  `"<describe> > <test>"` form as a `testcase name`. But a quote inside a title comes back as
-  `hashes \\"abc\\"` from the list and as `&quot;` from the XML. The XML is the artifact of record,
-  so the comparison unescapes the LIST and leaves the XML's own decoding to `junit-xml.mjs` — invert
-  that and every quoted title looks like a case the enumerator invented. After unescaping, the
-  textual enumerator (`lib/test-cases.mjs`) agreed with the runner's own collection on all 17 cases
-  of the `core` project (m). The list stays ADVISORY regardless (ADR-0002 item 6): it is a second
-  opinion on the enumerator, never a count a gate reads.
-- **A typo'd `--project` fails cleanly.** `--project coer` exits 1 and writes NO artifact (m) — which
-  the "missing artifact ⇒ CANNOT VERIFY" rule already handles. It is the *name that exists but
-  matches no file* that is dangerous, not the typo.
+- **A watcher pattern without anchors reports watchers nobody can find.** The obvious spelling — a
+  plain alternation of the executable names — is a SUBSTRING match over every process's whole command
+  line, and on 2026-11-01 it reported **seventeen** live watchers on this machine: shells whose argv
+  merely CONTAINED the runner's name at the time, because the text they were running happened to
+  mention it. A wrapper that refuses on that number refuses every run of record for as long as such a
+  shell lives. That count is a DATED OBSERVATION of the previous runner's name and not current state —
+  the same naive alternation returned 0 on 2026-11-02, because no process's argv happened to mention
+  the words then. **The hazard is the substring match, which does not go away between measurements;
+  only its visibility does**, which is exactly why `WATCHER_PATTERN` anchors every executable name at
+  a path or argv boundary (`tools/gates/run.mjs:354-380`).
+- **Half the artifact contract is in the ENVIRONMENT, not in the argv.** The JUnit reporter is
+  declared in `jest.config.mjs:70-82` with **no `outputFile`**, so its path comes from
+  `JEST_JUNIT_OUTPUT_FILE` and from nothing else. Measured 2026-11-02 without it: the reporter writes
+  `junit.xml` into the current directory — one file every run overwrites, which is the defect
+  `L-artifacts` exists to refuse. `runTool` records what it added to the child's environment as
+  `envExtra` in `run.json`, and `L-artifacts` judges that field (`REQUIRED_ENV`) exactly as it judges
+  the argv (`tools/gates/lights/artifacts.mjs:171-177`). A second caller that assembles its own
+  command line is one forgotten variable away from a run with no artifact to be judged from.
+- **The dotted `--outputFile.<reporter>=` form is SWALLOWED IN SILENCE.** It was the previous
+  runner's required spelling. Measured 2026-11-02 on this one: the parser takes `--outputFile.json=B`
+  without a word, runs every test and **writes no file** — worse than the crash it used to cause,
+  because the run looks complete: an exit code from the tests, full console output, no artifact. One
+  bare `--outputFile=<path>` is the only legal form, and `L-artifacts` refuses the dotted one by name
+  (`tools/gates/lights/artifacts.mjs:300-310`).
+- **ESM needs `NODE_OPTIONS=--experimental-vm-modules` in the child's environment.** Without it every
+  test dies with `Cannot use import statement outside a module`, which reads like a broken source and
+  is not one. The wrapper sets it (`tools/gates/run.mjs:157`); a hand-run must too.
+- **A `-t` filter that matches nothing exits 0 and calls itself a success.** Measured 2026-11-02 on
+  `core` with a pattern matching no case: exit 0, `success: true`, `numTotalTests: 17`,
+  `numPassedTests: 0`, `numPendingTests: 17`. **No flag prevents it** — `--passWithNoTests` governs
+  whether test FILES were found, and they were. Three guards, all required: the READER refuses
+  `passed + failed === 0` (`tools/gates/lib/jest-json.mjs:167-174`); `n/a` is decided from the
+  SOURCES before the run (`lib/test-project.mjs`); and the case count is compared with the
+  enumerator's.
+- **`-t` selects by NAME, and not exactly.** `tools/gates/red-check.mjs:59-61` records it as an
+  unanchored match over the full case name, so `-t 'adds a task'` also selects `adds a task twice`,
+  and there is no fully-qualified spelling to anchor it with. The honest filter is the file PATH as a
+  positional argument — which is itself a regex over the test path and matches path FRAGMENTS
+  (`red-check.mjs:65-78`), so every run of record compares the artifact's file set against the set it
+  asked for and reports a surplus as CANNOT VERIFY. Selection among cases happens AFTER the run, on
+  the artifact, by exact name.
+- **A path pattern nobody wrote fails CLOSED.** Measured 2026-11-02:
+  `… packages/core/test/NOBODY_WROTE_THIS` exits non-zero, writes both artifacts, and the XML reads
+  `<testsuites tests="0">` with JSON total 0 — which `readJUnit` already refuses as CANNOT VERIFY
+  (`red-check.mjs:65-78`). That is why no `--passWithNoTests` is ever passed: this runner needs none.
+- **The collection listing is FILES, not cases.** `jest --selectProjects <p> --listTests --json`
+  prints an array of absolute test-FILE paths (m, 2026-11-02; `tools/gates/lights/orphans.mjs:627-647`).
+  There is no `jest list`, and nothing on the command line enumerates case names — so the textual
+  enumerator `lib/test-cases.mjs` has **no runner-side second opinion at the case level any more**,
+  and the case count is reconciled against the artifact instead. The listing stays ADVISORY
+  (ADR-0002 item 6): it answers which files a project claims, never how many cases passed.
+- **A project name that does not exist is not the dangerous case.** On the previous runner a typo'd
+  project selector exited 1 and wrote NO artifact (m, previous runner, 2026-11-01), which the
+  "missing artifact ⇒ CANNOT VERIFY" rule already handles; whether this runner answers the same way
+  is UNVERIFIED. It is the *name that exists but matches no file* that is dangerous, not the typo.
 - **`oxlint` without `--type-aware` silently runs fewer rules.** Same tree, same config, both exit 0:
   243 rules with the flag, 211 without (m). Nothing in the output says the type-aware rules were
   skipped — but `number_of_rules` differs, so the gate can cross-check numerically as well as by
@@ -274,7 +354,9 @@ and is recorded there. Where the two could disagree, re-run it and correct this 
   (`tsconfig.base.json:13-17`).
 - **`@testing-library/react` leaks between cases without `afterEach(cleanup)`**: a second `render()`
   in one file leaves the first mounted and a single-match query finds two — a failure that says
-  nothing about the code (m; the cure is `apps/web/test/setup.ts:4-7`, wired at `vitest.config.ts:50`).
+  nothing about the code (m; the cure is `apps/web/test/setup.ts:4-7`, wired as `setupFilesAfterEnv`
+  at `jest.config.mjs:112`). The hook itself is imported from `@jest/globals`, like every head and
+  matcher in a test file (`apps/web/test/setup.ts:5`).
 - **`git ls-files` is empty before the first commit** (m: 0 lines right now). Every numeric check
   built on the index — the file-count comparison in the core-boundary walk, the content freshness key
   `sha256` over `git ls-files -s` — reads CANNOT VERIFY until commit 1 exists, and must say so rather
@@ -285,15 +367,33 @@ and is recorded there. Where the two could disagree, re-run it and correct this 
 - **`tsc --noEmit` is green on an empty program.** A narrowed `include`, a file in `exclude`, a
   `// @ts-nocheck`, `files: []`, a stale `.tsbuildinfo` — all look like success. Cure:
   `filesChecked > 0` from `--listFiles`, plus the numeric comparison with the tracked file list.
-- **A second top-level `describe` was expected to drop cases silently** — and it does NOT, in a plain
-  run, on this version. Measured: `packages/core/test/skeleton/digest.test.ts` has four top-level
-  `describe` blocks (`:10, :36, :46, :76`) and 16 `it(` calls, and the artifact reports `tests="16"`
-  for that file, every case executed (m). So the design's claim is **UNVERIFIED here**, and this file
-  says so rather than repeating it; whatever the mechanism was, the case-count comparison is what
-  would catch it, which is the guard that exists anyway.
-- **Snapshots are a self-fulfilling assertion.** `toMatchSnapshot` WRITES the snapshot when none
-  exists and is green forever after; `-u` rebases the claim onto current behaviour. Forbidden in spec
-  tests; runs of record set `CI=1`.
+- **A second top-level `describe` was expected to drop cases silently** — and it did NOT, in a plain
+  run, when it was last checked (m, previous runner, 2026-11-01):
+  `packages/core/test/skeleton/digest.test.ts` has four top-level `describe` blocks and 16 `it(`
+  calls, and the artifact reported `tests="16"` for that file, every case executed. So the design's
+  claim is **UNVERIFIED**, and this file says so rather than repeating it; whatever the mechanism was,
+  the case-count comparison is what would catch it, which is the guard that exists anyway.
+- **Snapshots are a self-fulfilling assertion, and `--ci` is the flag that stops it.** Measured
+  2026-11-02 without `--ci`: a MISSING snapshot is WRITTEN and the case PASSES — `1 snapshot
+  written`, exit 0 — so the first run of a snapshot assertion is green by construction, and `-u`
+  rebases the claim onto current behaviour afterwards. That measurement is the reason `--ci` is a
+  REQUIRED flag on every run of record, asserted in the argv by `L-artifacts`
+  (`tools/gates/lights/artifacts.mjs:145-151`). Snapshots are forbidden in spec tests outright.
+- **`.failing` INVERTS the verdict.** Measured 2026-11-02: `it.failing('x', () => { expect(1).toBe(2); })`
+  is reported `"passed"`. A spec test written that way is green exactly when its assertion fails, so
+  red-check could never prove it red — which is why `L-testshape` refuses `.failing` in a spec test
+  (`tools/gates/lights/testshape.mjs:157-165`).
+- **The focus and skip spellings are HEADS, not modifiers**, and a file using a head this runner does
+  not define fails to COLLECT rather than reporting a red case. The heads are `describe`, `fdescribe`,
+  `xdescribe`, `it`, `test`, `fit`, `xit`, `xtest`; the modifiers are `only`/`skip`/`each` on
+  `describe` and `only`/`skip`/`todo`/`each`/`failing`/`concurrent` on `it`/`test`. `suite(` and
+  `bench(` are the PREVIOUS runner's heads and are collected as foreign, as are the modifiers `for`,
+  `fails`, `sequential`, `shuffle`, `skipIf`, `runIf`, `extend` and `scoped`
+  (`tools/gates/lib/test-cases.mjs:76-117`).
+- **`.each` row names are FORMATTED by the runner** — `%i`, `%s` and `%p` are substituted from the
+  row and `$prop` from an object row (m, 2026-11-02) — so a row's case name **cannot be derived from
+  the source**. An enumerator that tries is reporting a name the artifact will never carry
+  (`tools/gates/lib/test-cases.mjs:674`).
 - **A test without an assertion passes** — an `async` body with no `await`, an `expect` inside an
   unawaited `.then()`. `expect.hasAssertions()` is required in every async test.
 - **`it.only` disables every other case in its file** without changing a line of them. Lint error
@@ -325,9 +425,11 @@ and is recorded there. Where the two could disagree, re-run it and correct this 
   `x instanceof Date` and `Date` as a type. A blanket lint rule was tried and dropped for exactly that
   reason: `no-restricted-globals` on `Date`/`Math` refused a type, a fixed value and `Math.floor`
   (`.oxlintrc.jsonc:18-23`).
-- **Fake timers are this stack's `Thread.Sleep`.** `vi.advanceTimersByTime(600)` makes "after 10 fixed
-  steps" green without stepping the domain once, and they LEAK into the next test when
-  `vi.useRealTimers()` is forgotten.
+- **Fake timers are this stack's `Thread.Sleep`.** Advancing the fake clock by 600 ms makes "after 10
+  fixed steps" green without stepping the domain once, and fake timers LEAK into the next test when
+  the real ones are not restored. The config restores mocks between cases
+  (`clearMocks` / `restoreMocks`, `jest.config.mjs:55-56`) — timers are not mocks and are not covered
+  by that, so a test that installs them restores them itself.
 - **A transitive upgrade touches no `package.json`** — the drift lives in `pnpm-lock.yaml` and is
   counted and named separately.
 - **Judging only `dependencies` is not enough**: in this stack `devDependencies` execute code
@@ -348,7 +450,7 @@ and is recorded there. Where the two could disagree, re-run it and correct this 
   copy — a reviewer does (ADR-0003).
 - **`kind: api` looks like it has an honest fast loop.** `curl` against a running dev server is an
   advisory lane. The honest fast loop is `app.inject()` inside the `api` project.
-- **Six role files are not a process.** They work only because the three phases run in FRESH sessions
+- **Five role files are not a process.** They work only because the three phases run in FRESH sessions
   with a human signature in git between them. A port that merges the phases "because TypeScript is
   fast" gets tests written by the same context as the code — a mirror of the implementation, with a
   fully green pipeline.
@@ -360,16 +462,24 @@ line is struck through when one does.
 
 - ~~**Whether `tsc --listFiles` and `--showConfig` behave on TypeScript 7 as the design assumed**~~ —
   CLOSED (m, 2026-11-01): both exit 0 and answer on `-p packages/core/tsconfig.json`; `--listFiles`
-  printed 92 absolute paths, `--showConfig` printed the resolved options. These two flags, with
-  `vitest list --json`, were named the design's main risk; all three answer, so the levels of
-  `L-core-purity`, `L-orphans` and `L-tsc` that rest on them stand, and `--listFiles` was observed
+  printed 92 absolute paths, `--showConfig` printed the resolved options. These two flags, with the
+  runner's own collection listing, were named the design's main risk; all three answer, so the levels
+  of `L-core-purity`, `L-orphans` and `L-tsc` that rest on them stand, and `--listFiles` was observed
   catching the hole they exist for — a relative import out of the package put
   `apps/api/src/index.ts` in `packages/core`'s own file list. No tech-debt entry is owed for a risk
   that closed by measurement. What the flags do NOT fix is the lib-path shape (Part 2 — a filter on
-  the familiar `typescript/lib/` path matches nothing), the double-escaped quote in the list
-  (Part 3) and the empty index before commit 1 (Part 3).
+  the familiar `typescript/lib/` path matches nothing), the empty index before commit 1 (Part 3), and
+  the fact that the collection listing answers in FILES rather than cases (Part 3), so the case-level
+  second opinion the design assumed does not exist.
 - **The browser lane in full**: `@playwright/test` is installed, the browsers are not downloaded
   (m), so no e2e test has ever run — not red, not green (TD-0001, `playwright.config.ts:3-5`).
+- **The coverage floor as a lane.** `--coverage` instruments through the transform and produces real
+  per-file numbers (m, 2026-11-02), and the floor is declared at 80% on all four metrics over
+  `packages/core/src/**` + `apps/api/src/**` (`jest.config.mjs:130-135`). Measured on the skeleton:
+  statements 94.44%, lines 95.53%, functions 100%, **branches 72.54%** — so the floor FAILS today.
+  That is the honest state and not a defect to hide: the uncovered branches are in the hand-written
+  sha256/digest support code, and the product does not exist yet. No run of record asks for coverage,
+  and no gate reads it, so the figure is a measurement and never a verdict.
 - **The pre-commit hook's total cost.** Individual lanes are seconds (m: `tsc` on core prints nothing
   and returns immediately; `oxlint --type-aware` over 14 files took 1.40 s wall, one run), the SUM of
   twelve lights plus spec-gate plus test-guard is unmeasured, and there is no calibration lane to
@@ -380,15 +490,21 @@ line is struck through when one does.
 - **The `-next-line` suppression form on NON-type-aware rules** (only the type-aware case was
   measured — Part 3).
 - **The parity lane finding anything.** `core` and `core-dom` run the same files under node and jsdom
-  (`vitest.config.ts:19-36`); both read `tests="17" failures="0"` on the same tree (m) and no case has
-  ever disagreed, so `L-env-parity`
-  is a lane with no observed signal (TD-0006; testing.md explains why it is nonetheless the one honest
-  parity lane here).
-- **The dual-channel cross-check as a GATE.** The collection-failure shape is measured on BOTH
-  channels and the three counter identities hold on a green and on a red run (Part 2), so the
-  unverified part is no longer the artifact — it is the gate: nothing reads `crossCheck` yet, and no
-  fixture has made the two channels disagree on purpose, so `agree: true` has only ever been observed
-  where agreement was the expected answer (TD-0005).
+  (`jest.config.mjs:85-98`); no case has ever disagreed, so `L-env-parity` is a lane with no observed
+  signal (TD-0006; testing.md explains why it is nonetheless the one honest parity lane here).
+- **An assertion-red verdict on this runner.** `tools/gates/red-check.mjs:113-120` records that the
+  JUnit `<failure>` arrives with no `type` and no `message` attribute — the text is the element body —
+  so `redReason` answers `unknown` and red-check cannot print `✓ red on base` until
+  `lib/junit-xml.mjs` learns the body form. Everything in the test phase therefore reaches a verdict
+  of CANNOT VERIFY rather than `red`, which blocks exactly as a green would.
+- **The collection-failure shape on this runner.** A file that failed to collect gets no XML row at
+  all and is counted only in the JSON channel (`red-check.mjs:121-130`), so the three counter
+  identities measured on the previous runner's artifacts (Part 2) do not close on such a run and
+  `isCollectionFailure` has nothing to match. `crash-red` is unreachable until both readers learn the
+  shape.
+- **The dual-channel cross-check as a GATE.** Nothing reads `crossCheck` yet, and no fixture has made
+  the two channels disagree on purpose, so `agree: true` has only ever been observed where agreement
+  was the expected answer (TD-0005).
 - **`vite build` as any kind of verdict.** Every project is `noEmit`; nothing in this repository has
   ever built `apps/web` for real, and bundle size is not a lane (TD-0010).
 - **A run of record with a watcher alive, and two runs of record at once.** `WATCHERS` and `.ci/lock`

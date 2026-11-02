@@ -9,15 +9,18 @@ each becomes a copy that can disagree with the thing it describes — and this r
 exactly that kind of disagreement (ADR-0002: a verdict is read from an artifact, never from a claim).
 Two shapes of the defect are already visible here.
 
-**Two tracked files disagree about the toolchain right now.** Observed 2026-11-01:
-`/Users/semenyevmenenko/work/cheq-task-manager/package.json` has **no** `devDependencies` key at all
-(31 lines, scripts only), while `pnpm-lock.yaml:9-46` records twelve devDependencies for importer `.`
-— `typescript`, `vitest`, `oxlint`, `oxlint-tsgolint`, `jsdom`, `@playwright/test`, `tsx`,
-`@types/node`, `@vitest/coverage-v8` and the three `@testing-library/*`. Every lane in this repository
-runs on packages the root manifest does not declare. Nothing in the repository says so, and a
-`pnpm install --frozen-lockfile` in a fresh worktree has not been run against this pair. This is a live
-defect, not accepted debt; it is recorded here because it is the cleanest available illustration of the
-rule, and the gate that would have named it is TD-0007.
+**Two tracked files disagreed about the toolchain, which is how this rule got written.** Observed
+2026-11-01: `/Users/semenyevmenenko/work/cheq-task-manager/package.json` had **no**
+`devDependencies` key at all (31 lines, scripts only), while `pnpm-lock.yaml:9-46` recorded twelve
+devDependencies for importer `.` — `typescript`, `vitest`, `oxlint`, `oxlint-tsgolint`, `jsdom`,
+`@playwright/test`, `tsx`, `@types/node`, `@vitest/coverage-v8` and the three `@testing-library/*`.
+Every lane in this repository ran on packages the root manifest did not declare, and nothing in the
+repository said so. That observation keeps its date and its names, including the test runner of that
+day: it is the cleanest illustration of the rule this ADR states, which is exactly why it is not
+re-dated now that the pair has been reconciled (TD-0007, fixed the same day — the declared set today
+is read from `package.json` and `git show HEAD:pnpm-lock.yaml`, never from this file). What the fix
+did NOT buy is a fresh-worktree `pnpm install --frozen-lockfile`; nothing has run one, and
+`LOCKFILE_CLEAN` is the flag that will answer it.
 
 **A figure in prose outlives the run that produced it.** The port this repository comes from grew a
 seven-column budget table, two of whose columns recorded calibration records that no longer existed on
@@ -40,12 +43,20 @@ What the state of this machine actually lives in: `.nvmrc:1` (node major), `pack
 | pnpm version | `package.json` → `packageManager` | `tools/gates/status.mjs` |
 | every dependency version | `pnpm-lock.yaml` — **of record: `git show HEAD:pnpm-lock.yaml`** | `tools/gates/lib/git.mjs` + `status.mjs` |
 | what a probe observed | `.ci/probe.json` | `tools/gates/lib/probe.mjs` — the ONLY reader |
-| what a run of record did | `.ci/runs/<ts>-<label>/run.json` | `tools/gates/lib/run-dir.mjs` |
+| what a run of record did | `.ci/runs/<ts>-<label>/run.json` — argv, exit code and, since 2026-11-02, `envExtra` | `tools/gates/lib/run-dir.mjs` |
 | whether the install matches the lock | `pnpm install --frozen-lockfile` | `status.mjs` → `LOCKFILE_CLEAN` |
 
 **The lock of record is HEAD's**, because a base run checks out a commit: a worktree pinned to a named
 commit plus `pnpm install --frozen-lockfile`. An uncommitted dependency edit therefore changes no
 verdict and enters no record; committing one does, which is correct.
+
+**A run's ENVIRONMENT is machine state too, and it is now in the record.** Added 2026-11-02, when the
+test runner changed: the JUnit reporter takes its output path from an environment variable rather than
+from a flag, so an `argv` alone no longer says where a run wrote its artifact. The wrapper therefore
+records what it added to the child's environment as `envExtra` beside the argv
+(`tools/gates/run.mjs:326`), and a light reads that field instead of a human remembering what was
+exported (ADR-0002 item 2). The rule is unchanged — one source, one reader, read at the moment of use
+— and the source for "how was this run invoked" is one file, not two.
 
 **No version, no seconds figure, no byte size and no cache state is written into any document** —
 `AGENTS.md`, an ADR, a TD, a skill or a spec. A document names the KEY and the COMMAND that prints it;
@@ -78,5 +89,7 @@ Anything else that looks like state in prose is a defect, and the fix is to name
   spec's premise check, which is REQUIRED to cite tool output with its date. The rule is this ADR plus
   a reviewer.
 - What stays UNVERIFIED: that `pnpm install --frozen-lockfile` succeeds in a fresh worktree of this
-  repository. Nothing has run it, and the manifest/lock divergence measured above suggests it would
-  fail (TD-0007). `status.mjs`'s `LOCKFILE_CLEAN` flag is the thing that will answer it.
+  repository. Nothing has run it. The divergence measured above would have made it fail outright and
+  was fixed the same day, so such an install can now at least begin — which is a statement about two
+  text files and not about `node_modules` (TD-0007). `status.mjs`'s `LOCKFILE_CLEAN` flag is the
+  thing that will answer it, and it is named for what it reads: the pair, not the tree.
