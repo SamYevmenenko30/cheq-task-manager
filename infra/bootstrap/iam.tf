@@ -64,3 +64,29 @@ resource "aws_iam_role_policy_attachment" "infrastructure" {
   role       = aws_iam_role.infrastructure.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRoleforExpressGatewayServices"
 }
+
+# THE SERVICE-LINKED ROLES EXPRESS MODE ASSUMES, and the reason they are declared here rather than
+# left to AWS. The Express Mode documentation lists three as "configured by Express Mode
+# automatically" — ecsServiceRoleForECS, AWSServiceRoleForElasticLoadBalancing and
+# AWSServiceRoleForApplicationAutoScaling_ECSService — which reads as nothing for a caller to do.
+# MEASURED 2026-11-02 on a fresh account: the create failed with `InvalidParameterException: Unable
+# to assume the service linked role. Please verify that the ECS service linked role exists.` and a
+# listing showed `AWSServiceRoleForECS` present (ECS does create its own on first use) while the
+# load-balancing and application-auto-scaling roles were absent. So the auto-creation is real for
+# one of the three and not for the other two, in an account that has never used those services.
+#
+# `AWSServiceRoleForECS` is deliberately NOT managed here: ECS creates it itself, and a Terraform
+# resource for a role that another service races to create is a conflict rather than a guarantee.
+#
+# These are account-global rather than regional, and they are free. A `destroy` deletes them, which
+# is harmless on an account that uses neither service for anything else and is worth knowing if it
+# ever does.
+resource "aws_iam_service_linked_role" "elb" {
+  aws_service_name = "elasticloadbalancing.amazonaws.com"
+  description      = "Lets the Express Mode service's Application Load Balancer call EC2 and ACM on its behalf."
+}
+
+resource "aws_iam_service_linked_role" "ecs_autoscaling" {
+  aws_service_name = "ecs.application-autoscaling.amazonaws.com"
+  description      = "Lets Application Auto Scaling adjust the Express Mode service's desired count."
+}

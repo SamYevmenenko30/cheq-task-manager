@@ -1,6 +1,6 @@
 # TD-0019: the infrastructure is written and nothing has validated, planned or applied it
 
-**Status:** Open · ~~the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run~~ `validate` RAN and passed on both roots against the real provider schema (2026-11-02, terraform 1.17.1, `hashicorp/aws v6.71.0`); `plan` RAN for `infra/bootstrap` (13 to add, 0 to change, 0 to destroy, 2026-11-02, region eu-north-1); still owed are both APPLIES and the application root's plan, which needs the backend the bootstrap apply creates
+**Status:** Open, NARROWED · ~~the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run~~ ~~`validate` RAN; `plan` RAN for `infra/bootstrap`; still owed are both APPLIES~~ **BOTH APPLIES RAN on 2026-11-02 in `eu-north-1` and the stack is serving at <https://d38quc42vrn64x.cloudfront.net>.** What is left is narrower and named below: the CI deploy role's policy has never been exercised (the applies used an administrator's credentials), and `terraform destroy` has never run against a resource set Express Mode partly keeps out of state
 **Area:** `infra/`, `infra/bootstrap/` · `docs/specs/BACKLOG.md` (the short path's acceptance rule)
 **Raised:** 2026-11-02
 
@@ -74,15 +74,20 @@ line — because a tool's silence is not a verdict until you have seen it speak.
   argument exists and that a string is a string, never that a value is in range. The resource's own
   documentation example writes `cpu = "256"` / `memory = "512"` — ECS task units, a quarter vCPU —
   while the AWS CLI for the same API documents `--cpu 2 --memory 4`, meaning two vCPUs and four
-  gigabytes. `infra/variables.tf` uses the resource's documented form. If the provider means vCPUs,
-  ECS rejects 256 at apply with an immediate error, so the failure mode is loud rather than a
-  256-vCPU bill — but it is unsettled, and only an apply settles it.
-- **Whether `ingress_paths[0].endpoint` carries a scheme.** `infra/api.tf` strips `https?://`
-  defensively because CloudFront's `domain_name` takes a host and nothing else. One of those two
-  branches is dead code and nobody knows which.
-- **Whether the deploy policy is sufficient.** `infra/bootstrap/ci.tf` was written from what the
-  workflow does, not from a failing apply. The honest way to find a missing IAM action is to run it
-  and read the denial; until then the policy is a prediction.
+  gigabytes. `infra/variables.tf` uses the resource's documented form. **SETTLED 2026-11-02 by the
+  apply: they are task units.** The service created with `cpu = "256"` / `memory = "512"` and runs
+  one task on a quarter vCPU; no error, no 256-vCPU bill.
+- ~~**Whether `ingress_paths[0].endpoint` carries a scheme.**~~ **SETTLED 2026-11-02: it does.**
+  The created service's endpoint reads `https://ch-59b1a899f30943549f0d6e577b695265.ecs.eu-north-1.on.aws`,
+  so the stripping branch in `infra/api.tf` is the live one and the other is dead code. It stays,
+  because a defensive strip over a value that already lacks a scheme is a no-op, and the alternative
+  is a CloudFront `domain_name` with a scheme in it if AWS ever changes the shape.
+- **Whether the deploy policy is sufficient. STILL UNVERIFIED, and the applies did not touch it.**
+  Both applies on 2026-11-02 used an administrator's own credentials, not the `cheq-deploy` role CI
+  assumes, so `infra/bootstrap/ci.tf`'s policy has still never authorised a single call. The honest
+  way to find a missing IAM action is to run it and read the denial; the first pipeline run on
+  `main` is that test, and a failure there is expected to be a missing action rather than a missing
+  resource.
 - **Whether `terraform destroy` is clean.** Express Mode creates roughly ten resources under the
   infrastructure role, none of them in Terraform's state. A community report says the load balancer
   and the ACM certificate survive a destroy; UNVERIFIED here, and it is a bill rather than a bug if
@@ -100,3 +105,34 @@ installs nothing), then `terraform fmt -check`, `init` and `validate` on both ro
 their output. The bootstrap plan is discharged. What remains is `terraform apply` on
 `infra/bootstrap`, then `init`, `plan` and `apply` on `infra/`, each committed with its output — and
 those need nothing from the organization now that the region is right.
+
+## What the applies added to this entry, 2026-11-02
+
+Three failures, each a documented default that is not one, and each now a comment beside the value
+that fixes it rather than a line a later reader deletes as redundant:
+
+1. **`AwsLogsConfiguration.LogStreamPrefix` is required.** The Express Mode defaults page lists
+   `awslogs-stream-prefix: "ecs"` among values "set by Express Mode". The first apply answered
+   `1 validation error(s) found. - missing required field,
+   CreateExpressGatewayServiceInput.PrimaryContainer.AwsLogsConfiguration.LogStreamPrefix`. The
+   default applies when the whole block is absent; supplying the block makes every field the
+   caller's. (`infra/api.tf`)
+2. **Two of the three service-linked roles are not created automatically.** The same page lists all
+   three as "configured by Express Mode automatically". The second apply answered
+   `InvalidParameterException: Unable to assume the service linked role`, and a listing showed
+   `AWSServiceRoleForECS` present — ECS does create its own — while
+   `AWSServiceRoleForElasticLoadBalancing` and `AWSServiceRoleForApplicationAutoScaling_ECSService`
+   were absent. Both are now declared in `infra/bootstrap/iam.tf`; the ECS one is deliberately left
+   to ECS, because a resource racing a service for the same role is a conflict, not a guarantee.
+3. **The provider plans `null` for two scaling fields the API fills in.** The third apply CREATED the
+   service in AWS (five minutes) and then failed with `Provider produced inconsistent result after
+   apply: .scaling_target[0].auto_scaling_target_value: was null, but now cty.NumberIntVal(60)`, and
+   the same for `auto_scaling_metric` / `AVERAGE_CPU`. The resource was in state and healthy, so it
+   was untainted rather than destroyed and rebuilt; writing both values into the config makes the
+   plan agree with the response. With min and max pinned to 1 they are inert.
+
+A fourth thing worth recording because it is a method point rather than a defect: the second apply
+was attempted with `-auto-approve` and refused by this session's own guardrail as a "blind apply".
+That was the right refusal. Every apply here went `plan -out <file>` then `apply <file>`, so what ran
+is what a human could read first — which is also why the resource counts above (13, 2, 3, 2) are
+quotable at all.

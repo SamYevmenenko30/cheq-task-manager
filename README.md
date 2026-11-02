@@ -3,8 +3,9 @@
 A task-management REST API and a React single-page app, built spec-first: every assertion was
 written as a failing test and proven red before the code that satisfies it existed.
 
-**Live URL:** _not yet deployed — see [Deployment](#deployment) for what is blocking it and what is
-already proven._
+**Live URL: <https://d38quc42vrn64x.cloudfront.net>** — the SPA at `/`, the API at `/health` and
+`/tasks` behind the same origin. Deployed 2026-11-02 to `eu-north-1`; see
+[Deployment](#deployment) for how it is built and what is still unverified.
 
 | | |
 |---|---|
@@ -212,44 +213,69 @@ $TF -chdir=infra apply -var="image_tag=$(git rev-parse HEAD)" …   # CI does th
 Measured: the gates job is green in CI at **49 s** total, with `ready` itself at 33 s
 ([run 41430333205](https://github.com/SamYevmenenko30/cheq-task-manager/actions)).
 
-### What is blocking the live URL
+### The deployment, and what it took
 
-Two `terraform apply` runs, and nothing else. The blocker that stood for most of this work turned
-out to be the **region**, not the services and not the account.
+**It is live: <https://d38quc42vrn64x.cloudfront.net>** — the SPA at `/`, the API at `/health`,
+`/tasks` and `/tasks/*`, one origin, HTTPS, and therefore no CORS layer and no API base URL baked
+into the build. Region `eu-north-1`; the Express Mode service's own endpoint is
+`https://ch-59b1a899f30943549f0d6e577b695265.ecs.eu-north-1.on.aws`, which is what CloudFront's API
+behaviours point at.
 
-The account is a member of an AWS Organization whose SCP
-`AdvancedModeRegionRestrictionSecurityControlPolicy` carries three `Deny` statements: two scoped to
-`us-east-1` and `us-west-2`, each denying everything outside an allow-list, and a third,
-`RegionFloor`, denying everything when `aws:RequestedRegion` is **not** in
-`[eu-north-1, unspecified, us-east-1, us-west-2]`. `eu-north-1` matches no partitional statement and
-sits inside the carve-out, so that policy denies nothing there. This configuration defaulted to
-`eu-central-1`, which is named by neither — so every call it made was refused, and the refusal said
-"service control policy" rather than "wrong region", which is what made it read as a service problem.
+Verified against the live URL rather than against an exit code — `GET /health` returned
+`{"status":"ok","uptime":435.4}`, `POST /tasks` with `"  через CloudFront  "` came back as
+`"через CloudFront"` (so the trim is the deployed code's, not the test's), a blank title returned
+`400 {"message":"title must be a non-empty string"}`, and the SPA renders with its health badge green
+and the list populated, including a task added through the form in a browser.
 
-Measured in `eu-north-1` on 2026-11-02: `s3:CreateBucket` and `ecr:CreateRepository` both succeeded
-(both deleted immediately), and `ecs`, `ecr`, `ec2`, `elbv2`, `s3`, `logs` and
-`application-autoscaling` all answer. The default VPC has three default public subnets across three
-availability zones with 4091 free addresses each, which is what Express Mode requires when no subnets
-are given. Both roots now default to `eu-north-1`, with the reasoning in a comment beside the value.
+The blocker, for most of this work, was the **region**. The account is a member of an organization
+whose SCP `AdvancedModeRegionRestrictionSecurityControlPolicy` denies everything when
+`aws:RequestedRegion` is not in `[eu-north-1, unspecified, us-east-1, us-west-2]`, and denies all but
+an allow-list inside `us-east-1` and `us-west-2`. Both roots defaulted to `eu-central-1`, named by no
+carve-out, so every call was refused — with the words "service control policy" rather than "wrong
+region", which is what made it read as a service problem. `eu-north-1` is the one region that policy
+leaves untouched. An earlier revision of this README concluded that nothing able to serve an HTTP
+response could be created in this account; that was wrong, it generalised from four sampled regions,
+and the correction is in [docs/specs/CHQ-005.probe-hosting.md](docs/specs/CHQ-005.probe-hosting.md).
 
-An earlier revision of this section said that nothing able to serve an HTTP response could be
-created in this account. That was wrong: it generalised from four sampled regions to the region
-space, and the policy's own text named the exception. The correction, and how the error was made, is
-in [docs/specs/CHQ-005.probe-hosting.md](docs/specs/CHQ-005.probe-hosting.md) rather than quietly
-overwritten.
+**Three things only an apply could find**, each now a comment beside the value it fixed rather than a
+line someone will later delete as redundant:
 
-**What has run:** `terraform fmt -check`, `init` and `validate` pass on both roots against the real
-provider (`hashicorp/aws 6.71.0`), and `terraform plan` on `infra/bootstrap` returned **13 to add, 0
-to change, 0 to destroy** against the real account — the plan [TD-0019](docs/tech-debt/TD-0019-the-infrastructure-is-written-and-nothing-has-run-it.md)
-recorded as owed. **What has not:** either apply. The application root cannot be planned until the
-bootstrap apply creates its S3 backend, so its plan is owed too.
+1. `AwsLogsConfiguration.LogStreamPrefix` is **required**, although the Express Mode defaults page
+   lists `awslogs-stream-prefix: "ecs"` among values "set by Express Mode". The default applies when
+   the block is absent; supplying the block makes every field in it the caller's.
+2. **Two of the three service-linked roles are not created automatically.** The same page lists all
+   three as "configured by Express Mode automatically". On a fresh account `AWSServiceRoleForECS`
+   did appear by itself; `AWSServiceRoleForElasticLoadBalancing` and
+   `AWSServiceRoleForApplicationAutoScaling_ECSService` did not. Both are now declared in
+   `infra/bootstrap/iam.tf`, because the assignment asks for infrastructure in code and a CLI call
+   made by hand is not that. The ECS one is deliberately left to ECS.
+3. The provider **planned `null`** for `scaling_target.auto_scaling_target_value` and
+   `auto_scaling_metric` while the API fills in `60` and `AVERAGE_CPU`, so the first create succeeded
+   in AWS and then failed the apply with "Provider produced inconsistent result after apply". Both
+   are written out now. With min and max pinned to 1 they are inert — they exist so the plan agrees
+   with what comes back.
 
-**One standing hazard, worth knowing before an apply.** The same organization carries
-`BudgetsSpendLimitDenyNewWorkloads`, which AWS describes as blocking "creation of new chargeable
-resources in a member account when forecasted spend approaches the AWS Budgets SpendLimit
-threshold". It is not blocking today. If an apply that worked before starts failing with an explicit
-deny and nothing here changed, that policy is the first thing to read — and the fix is the budget,
-not the policy, because the Budgets service reattaches what it manages.
+**Two of TD-0019's open questions are settled by the apply.** `ingress_paths[0].endpoint` DOES carry
+a scheme (`https://ch-…on.aws`), so the stripping branch in `infra/api.tf` is the live one and the
+other is dead code. And `cpu = "256"` / `memory = "512"` are ECS task units, not vCPUs and gigabytes:
+the service created and runs one task on a quarter vCPU.
+
+**What is still not verified.** The applies above ran with an administrator's credentials, not with
+the CI deploy role, so `infra/bootstrap/ci.tf`'s policy remains a prediction until a pipeline run
+exercises it. `terraform destroy` has never run, and Express Mode creates roughly ten resources under
+the infrastructure role that Terraform's state does not track — a community report says the load
+balancer and the certificate survive a destroy. Both stay in
+[TD-0019](docs/tech-debt/TD-0019-the-infrastructure-is-written-and-nothing-has-run-it.md).
+
+**One standing hazard.** The same organization carries `BudgetsSpendLimitDenyNewWorkloads`, which AWS
+attaches when forecast spend nears the budget limit and which blocks creation of chargeable
+resources. It is not blocking today. If an apply that worked starts failing with an explicit deny and
+nothing here changed, read that policy first — and fix the budget, not the policy, because the
+Budgets service reattaches what it manages.
+
+**The store is one process's memory.** Every deploy and every task replacement empties the task list.
+That is CHQ-001's recorded decision, not an oversight, and the scaling target is pinned to 1..1 so a
+second task can never serve a different list.
 ---
 
 ## Assumptions, and what is not finished

@@ -43,8 +43,16 @@ resource "aws_ecs_express_gateway_service" "api" {
     image          = "${var.image_repository}:${var.image_tag}"
     container_port = var.container_port
 
+    # `log_stream_prefix` IS REQUIRED, and the documentation says the opposite. The Express Mode
+    # defaults page lists `awslogs-stream-prefix: "ecs"` among the values "set by Express Mode",
+    # reading as a default one may omit. MEASURED 2026-11-02: the first apply of this resource
+    # failed with `1 validation error(s) found. - missing required field,
+    # CreateExpressGatewayServiceInput.PrimaryContainer.AwsLogsConfiguration.LogStreamPrefix`.
+    # The default applies when the whole block is absent; supplying the block makes every field in
+    # it the caller's to fill. "ecs" is the value the documentation names.
     aws_logs_configuration {
-      log_group = aws_cloudwatch_log_group.api.name
+      log_group         = aws_cloudwatch_log_group.api.name
+      log_stream_prefix = "ecs"
     }
 
     # The image already defaults PORT and HOST (Dockerfile:72-74), so nothing here repeats them —
@@ -68,6 +76,17 @@ resource "aws_ecs_express_gateway_service" "api" {
   scaling_target {
     min_task_count = 1
     max_task_count = 1
+
+    # BOTH OF THESE ARE WRITTEN DOWN ONLY BECAUSE THE PROVIDER REQUIRES AGREEMENT, not because this
+    # service scales. With min and max both pinned to 1 the policy can never fire, so the metric and
+    # the target are inert. MEASURED 2026-11-02: omitting them created the service in AWS (five
+    # minutes) and then failed the apply with `Provider produced inconsistent result after apply:
+    # .scaling_target[0].auto_scaling_target_value: was null, but now cty.NumberIntVal(60)`, and the
+    # same for `auto_scaling_metric` / `AVERAGE_CPU`. The API fills its own defaults, the provider
+    # planned null, and Terraform refuses a result that disagrees with its plan. The two values here
+    # are exactly what the API returned, so the plan now matches what comes back.
+    auto_scaling_target_value = 60
+    auto_scaling_metric       = "AVERAGE_CPU"
   }
 
   # So `apply` returns only once the service is actually serving. Without it the workflow would
