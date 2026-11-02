@@ -1,7 +1,17 @@
+# eu-north-1 IS NOT A PREFERENCE, it is the one region this account's organization leaves open, and
+# the reason is worth keeping next to the value. The SCP
+# `AdvancedModeRegionRestrictionSecurityControlPolicy` (p-jxfv0n88) carries three Deny statements:
+# two of them are scoped to `us-east-1` and `us-west-2` and deny everything outside a narrow
+# allow-list, and the third, `RegionFloor`, denies everything when `aws:RequestedRegion` is NOT in
+# [eu-north-1, unspecified, us-east-1, us-west-2]. eu-north-1 is therefore the only region named by
+# the carve-out and covered by no partitional statement — nothing in that policy denies there.
+# MEASURED 2026-11-02: in eu-north-1 `s3:CreateBucket` and `ecr:CreateRepository` both SUCCEEDED
+# (and both resources were deleted), while the same calls in us-east-1 and eu-central-1 were refused
+# with an explicit deny. docs/specs/CHQ-005.probe-hosting.md has the full map.
 variable "region" {
   description = "The AWS region. Must match the bootstrap stage's: the registry, the service and the log group all live in one region."
   type        = string
-  default     = "eu-central-1"
+  default     = "eu-north-1"
 }
 
 variable "name" {

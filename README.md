@@ -214,37 +214,42 @@ Measured: the gates job is green in CI at **49 s** total, with `ready` itself at
 
 ### What is blocking the live URL
 
-An AWS account whose organization permits a create. Not a line of this repository, and measured
-rather than assumed.
+Two `terraform apply` runs, and nothing else. The blocker that stood for most of this work turned
+out to be the **region**, not the services and not the account.
 
-The account available for this exercise, `004940046152`, is a MEMBER of an AWS Organization
-(`o-p4nytzyapy`, management account `585688243989`) with two service control policies denying along
-two different axes: one denies whole services and every region except `us-east-1`, the other denies
-individual write actions inside the services the first one leaves alone. Probed on 2026-11-02, with
-valid parameters on free and immediately deleted resources:
+The account is a member of an AWS Organization whose SCP
+`AdvancedModeRegionRestrictionSecurityControlPolicy` carries three `Deny` statements: two scoped to
+`us-east-1` and `us-west-2`, each denying everything outside an allow-list, and a third,
+`RegionFloor`, denying everything when `aws:RequestedRegion` is **not** in
+`[eu-north-1, unspecified, us-east-1, us-west-2]`. `eu-north-1` matches no partitional statement and
+sits inside the carve-out, so that policy denies nothing there. This configuration defaulted to
+`eu-central-1`, which is named by neither — so every call it made was refused, and the refusal said
+"service control policy" rather than "wrong region", which is what made it read as a service problem.
 
-| create | verdict |
-|---|---|
-| `iam:CreateRole`, `logs:CreateLogGroup`, `acm:RequestCertificate` | allowed |
-| `s3:CreateBucket` | **denied** |
-| `lightsail:CreateContainerService`, `lightsail:CreateInstances` | **denied** |
-| `ecs`, `ecr`, `ec2`, `elbv2`, `lambda`, `apigateway`, `apprunner`, `cloudformation`, … | **denied** (whole service) |
+Measured in `eu-north-1` on 2026-11-02: `s3:CreateBucket` and `ecr:CreateRepository` both succeeded
+(both deleted immediately), and `ecs`, `ecr`, `ec2`, `elbv2`, `s3`, `logs` and
+`application-autoscaling` all answer. The default VPC has three default public subnets across three
+availability zones with 4091 free addresses each, which is what Express Mode requires when no subnets
+are given. Both roots now default to `eu-north-1`, with the reasoning in a comment beside the value.
 
-So **nothing that can serve an HTTP response can be created**: no bucket, therefore no SPA and no
-state backend; no container service and no VM, therefore no compute. What is permitted — a role, a
-log group, a certificate — is scaffolding with nothing to scaffold.
+An earlier revision of this section said that nothing able to serve an HTTP response could be
+created in this account. That was wrong: it generalised from four sampled regions to the region
+space, and the policy's own text named the exception. The correction, and how the error was made, is
+in [docs/specs/CHQ-005.probe-hosting.md](docs/specs/CHQ-005.probe-hosting.md) rather than quietly
+overwritten.
 
-An SCP overrides IAM, and it restrains a member account's own root user, so no grant made inside
-this account can lift it; only the management account can, and that account is not mine. The full
-record, including a probe technique that failed and the control case that caught it, is in
-[docs/specs/CHQ-005.probe-hosting.md](docs/specs/CHQ-005.probe-hosting.md).
+**What has run:** `terraform fmt -check`, `init` and `validate` pass on both roots against the real
+provider (`hashicorp/aws 6.71.0`), and `terraform plan` on `infra/bootstrap` returned **13 to add, 0
+to change, 0 to destroy** against the real account — the plan [TD-0019](docs/tech-debt/TD-0019-the-infrastructure-is-written-and-nothing-has-run-it.md)
+recorded as owed. **What has not:** either apply. The application root cannot be planned until the
+bootstrap apply creates its S3 backend, so its plan is owed too.
 
-What that leaves proven, and what it does not: `terraform fmt`, `init` and `validate` pass on both
-stages against the real provider schema (`hashicorp/aws 6.71.0`), so every argument name, type and
-reference is the provider's own. The **plan and the apply have never run**, which is recorded as
-[TD-0019](docs/tech-debt/TD-0019-the-infrastructure-is-written-and-nothing-has-run-it.md) rather
-than glossed over.
-
+**One standing hazard, worth knowing before an apply.** The same organization carries
+`BudgetsSpendLimitDenyNewWorkloads`, which AWS describes as blocking "creation of new chargeable
+resources in a member account when forecasted spend approaches the AWS Budgets SpendLimit
+threshold". It is not blocking today. If an apply that worked before starts failing with an explicit
+deny and nothing here changed, that policy is the first thing to read — and the fix is the budget,
+not the policy, because the Budgets service reattaches what it manages.
 ---
 
 ## Assumptions, and what is not finished

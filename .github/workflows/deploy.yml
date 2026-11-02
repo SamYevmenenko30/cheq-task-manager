@@ -112,7 +112,7 @@ jobs:
       id-token: write # the OIDC token; without it there is nothing to exchange for credentials
       contents: read
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-north-1' }}
       IMAGE_TAG: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4

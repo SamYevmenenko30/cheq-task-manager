@@ -1,6 +1,6 @@
 # TD-0019: the infrastructure is written and nothing has validated, planned or applied it
 
-**Status:** Open · ~~the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run~~ `validate` RAN and passed on both roots against the real provider schema (2026-11-02, terraform 1.17.1, `hashicorp/aws v6.71.0`); the PLAN is still owed and is blocked on the organization's service control policies, not on this repository
+**Status:** Open · ~~the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run~~ `validate` RAN and passed on both roots against the real provider schema (2026-11-02, terraform 1.17.1, `hashicorp/aws v6.71.0`); `plan` RAN for `infra/bootstrap` (13 to add, 0 to change, 0 to destroy, 2026-11-02, region eu-north-1); still owed are both APPLIES and the application root's plan, which needs the backend the bootstrap apply creates
 **Area:** `infra/`, `infra/bootstrap/` · `docs/specs/BACKLOG.md` (the short path's acceptance rule)
 **Raised:** 2026-11-02
 
@@ -20,20 +20,25 @@ roots the same day. What remains is the second:
   `/usr/local/opt/terraform/bin/terraform` and is NOT on `PATH` — `brew link` refuses, because
   `/usr/local/bin/terraform` is a hand-installed 2019 FILE rather than a symlink, and linking would
   delete it. Every command below was run by full path rather than by removing somebody's binary.
-- **The account.** TWO service control policies deny, and the second is why no substitution of
-  services helps. `p-ck9fh6tq` denies whole services — `ecs`, `ecr`, `ec2`, `elbv2`, `lambda`,
-  `apigateway`, `apprunner`, `cloudformation` and more — plus every region except `us-east-1`.
-  `p-jxfv0n88` then denies individual write ACTIONS inside what the first one leaves open:
-  `s3:CreateBucket`, `lightsail:CreateContainerService` and `lightsail:CreateInstances` are each
-  denied, while `iam:CreateRole`, `logs:CreateLogGroup` and `acm:RequestCertificate` are allowed.
-  All measured 2026-11-02 with VALID parameters on free resources that were deleted in the same
-  session — the MEASURED section of `docs/specs/CHQ-005.probe-hosting.md` has the method, including
-  an earlier technique that was unsound and the control case that caught it.
+- **The account — and this bullet has been wrong twice, so read the correction first.** The blocker
+  was the REGION. The SCP `AdvancedModeRegionRestrictionSecurityControlPolicy` (`p-jxfv0n88`) denies
+  everything outside an allow-list in `us-east-1`, nearly everything in `us-west-2`, and — in its
+  `RegionFloor` statement — everything at all when `aws:RequestedRegion` is not one of
+  `[eu-north-1, unspecified, us-east-1, us-west-2]`. `eu-north-1` matches no partitional statement
+  and is inside that exception list, so the policy denies nothing there. Both roots defaulted to
+  `eu-central-1`, which is in neither carve-out.
 
-  So **nothing that can serve an HTTP response can be created in this account**, and the gap is not
-  the one this entry originally described. A `plan` of the application root cannot even reach its S3
-  backend, because the bucket that backend needs is itself a denied create. The plan is owed and no
-  code here can discharge it.
+  MEASURED in `eu-north-1` on 2026-11-02: `s3:CreateBucket` and `ecr:CreateRepository` both
+  SUCCEEDED (deleted immediately), and `ecs`, `ecr`, `ec2`, `elbv2`, `s3`, `logs` and
+  `application-autoscaling` all answer reads. An earlier revision of this bullet said "nothing that
+  can serve an HTTP response can be created in this account"; that generalised from four sampled
+  regions to the region space, while the policy's own text named the exception. The correction and
+  the method are in the CORRECTED section of `docs/specs/CHQ-005.probe-hosting.md`.
+
+  So the account is not the blocker. `terraform plan` RAN against it for `infra/bootstrap` on
+  2026-11-02 — **13 to add, 0 to change, 0 to destroy** — which is the plan this entry recorded as
+  owed, for that root. What is still owed is both APPLIES, and the application root's own plan,
+  which needs the S3 backend the bootstrap apply creates.
 
 ## What IS verified, exactly
 
@@ -92,7 +97,6 @@ caveat attached to a done one.
 
 Discharged in two steps, in this order: `brew install terraform` (a human action — this project
 installs nothing), then `terraform fmt -check`, `init` and `validate` on both roots, committed with
-their output. The plan and the apply additionally need an AWS account whose organization permits a
-create. That is the management account `585688243989`'s to grant or nobody's: an SCP overrides IAM
-and restrains a member account's own root user, so no grant made inside `004940046152` can lift it.
-Not a thing any code here can fix.
+their output. The bootstrap plan is discharged. What remains is `terraform apply` on
+`infra/bootstrap`, then `init`, `plan` and `apply` on `infra/`, each committed with its output — and
+those need nothing from the organization now that the region is right.
