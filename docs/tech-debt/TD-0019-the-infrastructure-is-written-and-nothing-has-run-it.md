@@ -1,6 +1,6 @@
 # TD-0019: the infrastructure is written and nothing has validated, planned or applied it
 
-**Status:** Open · the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run, because the `terraform` on this machine is v0.12.12 and the account denies the services
+**Status:** Open · ~~the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run~~ `validate` RAN and passed on both roots against the real provider schema (2026-11-02, terraform 1.17.1, `hashicorp/aws v6.71.0`); the PLAN is still owed and is blocked on the organization's service control policies, not on this repository
 **Area:** `infra/`, `infra/bootstrap/` · `docs/specs/BACKLOG.md` (the short path's acceptance rule)
 **Raised:** 2026-11-02
 
@@ -11,35 +11,58 @@ acceptance is a command and its artifact** — for infrastructure, `terraform va
 landing in the commit that lands the config. CHQ-004 met that: the image was built and the container
 answered. CHQ-005 has not.
 
-Two reasons, both external to the configuration:
+~~Two reasons, both external to the configuration:~~ **The first is gone.** The binary was the
+blocker and is now installed — terraform 1.17.1 via `hashicorp/tap`, and `validate` passed on both
+roots the same day. What remains is the second:
 
-- **The binary.** `/usr/local/bin/terraform` is v0.12.12, dated October 2019. The configuration
-  declares `required_version = ">= 1.10"` (the S3 backend's `use_lockfile` replaced the DynamoDB
-  lock table in that release) and pins `hashicorp/aws ~> 6.71`. v0.12 cannot initialise that
-  provider, so `validate` cannot see a schema.
+- ~~**The binary.** `/usr/local/bin/terraform` is v0.12.12, dated October 2019.~~ RESOLVED
+  2026-11-02. Note for anyone reproducing this: the brew copy lives at
+  `/usr/local/opt/terraform/bin/terraform` and is NOT on `PATH` — `brew link` refuses, because
+  `/usr/local/bin/terraform` is a hand-installed 2019 FILE rather than a symlink, and linking would
+  delete it. Every command below was run by full path rather than by removing somebody's binary.
 - **The account.** `ecs`, `ecr`, `ec2` and `cloudformation` are denied by the organization's service
-  control policies (measured 2026-11-02), so even with the right binary there is nothing to plan
-  against that would succeed.
+  control policies (measured 2026-11-02), so there is nothing to plan against that would succeed.
+  A `plan` of the application root additionally needs its S3 backend, which needs `bootstrap`
+  applied, which needs the same policies lifted. The plan is therefore owed and is not a thing any
+  code here can discharge.
 
 ## What IS verified, exactly
 
-`terraform fmt -check -recursive infra/` is clean over all 843 lines. That verdict was established
-rather than assumed, by making the command fail twice on a copy of the tree:
+**As of 2026-11-02, against the real provider schema** — terraform 1.17.1, `hashicorp/aws v6.71.0`
+"(signed by HashiCorp)", `init -backend=false` then `validate`, each read from its own exit status
+and not through a pipe:
 
-- a file with non-canonical indentation ⇒ the file is named on stdout;
-- a file that is not valid HCL ⇒ `Error: Invalid expression`, with the line.
+    fmt -check -recursive infra/            exit 0
+    init -backend=false  infra/bootstrap    exit 0
+    validate             infra/bootstrap    exit 0   Success! The configuration is valid.
+    init -backend=false  infra/             exit 0   Installed hashicorp/aws v6.71.0
+    validate             infra/             exit 0   Success! The configuration is valid.
 
-So the configuration is **valid HCL2 in canonical form**. It is not evidence of anything else. With
-no provider schema, `fmt` cannot know whether `scaling_target` is a real block, whether
-`ingress_paths` is a list, or whether `cpu` takes the string `"256"`.
+`-backend=false` is what lets the application root initialise at all: its backend is partial by
+design, and the bucket it would use does not exist yet. It installs the provider and skips the
+state, which is exactly the scope of a `validate`.
+
+So every argument NAME exists in the provider, every TYPE matches, and every REFERENCE resolves —
+including the whole of `aws_ecs_express_gateway_service`, whose arguments were written from the
+provider's documentation source rather than from memory: `primary_container` with its nested
+`aws_logs_configuration` and `environment`, `scaling_target`, `health_check_path`,
+`wait_for_steady_state`, and the `ingress_paths[0].endpoint` attribute `infra/api.tf` reads.
+
+~~`terraform fmt -check -recursive infra/` is clean over all 843 lines… It is not evidence of
+anything else.~~ That earlier, weaker verdict is superseded, and how it was established is worth
+keeping: the command was made to FAIL twice on a copy of the tree — a file with non-canonical
+indentation names the file, a file that is not valid HCL prints `Error: Invalid expression` with the
+line — because a tool's silence is not a verdict until you have seen it speak.
 
 ## The specific things a plan or an apply would settle
 
-- **The units of `cpu` and `memory`.** The resource's own documentation example writes
-  `cpu = "256"` / `memory = "512"` — ECS task units, a quarter vCPU. The AWS CLI for the same API
-  documents `--cpu 2 --memory 4`, meaning two vCPUs and four gigabytes. `infra/variables.tf` uses
-  the resource's documented form. If the provider means vCPUs, ECS rejects 256 at apply with an
-  immediate error, so the failure mode is loud rather than a 256-vCPU bill — but it is unsettled.
+- **The units of `cpu` and `memory`**, and `validate` does NOT settle this: it checks that the
+  argument exists and that a string is a string, never that a value is in range. The resource's own
+  documentation example writes `cpu = "256"` / `memory = "512"` — ECS task units, a quarter vCPU —
+  while the AWS CLI for the same API documents `--cpu 2 --memory 4`, meaning two vCPUs and four
+  gigabytes. `infra/variables.tf` uses the resource's documented form. If the provider means vCPUs,
+  ECS rejects 256 at apply with an immediate error, so the failure mode is loud rather than a
+  256-vCPU bill — but it is unsettled, and only an apply settles it.
 - **Whether `ingress_paths[0].endpoint` carries a scheme.** `infra/api.tf` strips `https?://`
   defensively because CloudFront's `domain_name` takes a host and nothing else. One of those two
   branches is dead code and nobody knows which.
