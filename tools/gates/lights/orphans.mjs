@@ -42,6 +42,17 @@
  *    imports is dead, while a module only a test imports is a helper living on
  *    the production side of the package.
  *
+ *    AN ENTRY POINT IS DECLARED, NEVER GUESSED BY NAME, and there are two kinds
+ *    of them: the one a CALLER imports (the manifest's `exports`, or the
+ *    conventional file an app's host names — `apps/web/index.html` points a
+ *    script tag at `src/main.tsx`) and the one the OPERATING SYSTEM starts.
+ *    `apps/api/src/server.ts` is the second: it binds the port, so nothing in
+ *    this repository imports it and it is still the outermost caller. The
+ *    Dockerfile is where that fact is declared, so `containerEntries` reads it
+ *    from there — which also makes the link checkable in the other direction, a
+ *    Dockerfile naming a file this repository does not hold being a problem of
+ *    this light rather than a build failure on the next machine.
+ *
  * 2. ONE RUNNER PER TEST FILE — every `*.test.ts(x)` is collected by exactly one
  *    BAND of Jest projects. Zero bands means a test file that never runs and
  *    nothing says so; two bands mean one file judged twice with no declaration
@@ -191,6 +202,97 @@ const RESOLVE_SUFFIXES = Object.freeze(['', '.ts', '.tsx', '/index.ts', '/index.
  * clause 1b is cannot-verify for it rather than failing every file it holds.
  */
 const ENTRY_CANDIDATES = Object.freeze(['src/main.tsx', 'src/main.ts', 'src/index.tsx', 'src/index.ts']);
+
+/** The container's build file — the one place the image's entry point is declared. */
+const DOCKERFILE = 'Dockerfile';
+
+/**
+ * The PROCESS entry point, read from the Dockerfile.
+ *
+ * `apps/api/src/server.ts` is imported by nothing and is not dead: it IS the
+ * outermost caller, named as the bundler's entry in `Dockerfile` and executed by
+ * that image's `CMD`. A light seeded only at `src/index.ts` reads it as an
+ * orphan, and the cure is not a second declaration in a manifest — two
+ * declarations of one fact can disagree, and the one a `docker build` obeys is
+ * the Dockerfile. So the Dockerfile is what this light reads.
+ *
+ * What that buys beyond the seed: a path the Dockerfile names and this
+ * repository does not hold is a PROBLEM here. Today, renaming or deleting the
+ * entry without touching the Dockerfile breaks the image at build time, on
+ * whichever machine next builds it; after this it is red before the commit.
+ *
+ * The parse is deliberately narrow — `RUN … esbuild <path> …`, with backslash
+ * continuations joined — and a Dockerfile with no such line is a NOTE, not a
+ * failure: a repository whose container bundles nothing has nothing to declare
+ * here. A Dockerfile that invokes some other bundler is the same case, and the
+ * note is what says so out loud rather than leaving the silence to be read as a
+ * pass.
+ */
+function containerEntries(root) {
+  const abs = join(root, DOCKERFILE);
+  if (!existsSync(abs))
+    return {
+      entries: [],
+      problems: [],
+      notes: [`${DOCKERFILE} does not exist — no container entry point is declared, so clause 1b is seeded by "exports" and the conventional names alone`],
+    };
+
+  let text;
+  try {
+    text = readFileSync(abs, 'utf8');
+  } catch (error) {
+    return {
+      entries: [],
+      problems: [`${DOCKERFILE} cannot be read (${String(error)}) — the image's entry point is then undeclared and every module behind it reads as an orphan`],
+      notes: [],
+    };
+  }
+
+  // One logical command per element, carrying the line its FIRST physical line
+  // was on: a trailing backslash continues a command, and the Dockerfile here
+  // spreads the esbuild invocation over six lines.
+  const raw = text.split(/\r?\n/);
+  const commands = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    let joined = raw[i];
+    const line = i + 1;
+    while (/\\[ \t]*$/.test(joined) && i + 1 < raw.length) {
+      joined = `${joined.replace(/\\[ \t]*$/, ' ')}${raw[i + 1]}`;
+      i += 1;
+    }
+    commands.push({ line, text: joined });
+  }
+
+  const entries = [];
+  const problems = [];
+  const notes = [];
+  for (const cmd of commands) {
+    if (!/^\s*RUN\b/.test(cmd.text) || !/\besbuild\b/.test(cmd.text)) continue;
+    const after = cmd.text.slice(cmd.text.indexOf('esbuild') + 'esbuild'.length);
+    // Everything that is not a flag is an entry point: esbuild takes several.
+    const positional = after.split(/\s+/).filter((t) => t.length > 0 && !t.startsWith('-'));
+    if (positional.length === 0) {
+      problems.push(`${DOCKERFILE}:${cmd.line}: an esbuild command with no entry path — the image's entry point cannot be read from it`);
+      continue;
+    }
+    for (const token of positional) {
+      const rel = normRel(token);
+      if (rel === null || !existsSync(join(root, rel))) {
+        problems.push(
+          `${DOCKERFILE}:${cmd.line}: names ${JSON.stringify(token)} as an entry point of the image and this repository holds no such file — the container would fail to build`,
+        );
+        continue;
+      }
+      entries.push(rel);
+    }
+  }
+  if (entries.length === 0 && problems.length === 0)
+    notes.push(`${DOCKERFILE} declares no bundled entry point (no \`RUN … esbuild <path>\`) — nothing of it seeds clause 1b`);
+  // Said out loud on a PASS too: otherwise a green row cannot be told apart from
+  // a Dockerfile this reader failed to understand, which is the whole hazard.
+  else if (entries.length > 0) notes.push(`${DOCKERFILE} declares ${entries.length} entry point(s) of the image, which seed clause 1b: ${entries.join(', ')}`);
+  return { entries, problems, notes };
+}
 
 /** Suffixes that make a file a runner-collected test by name alone, taken from
  * the project table so this light holds no second list. */
@@ -447,6 +549,10 @@ export function run({ root = process.cwd(), premises = null } = {}) {
   const pkgs = readPackages(root);
   for (const p of pkgs.problems) problems.push(p);
 
+  const container = containerEntries(root);
+  for (const p of container.problems) problems.push(p);
+  for (const n of container.notes) notes.push(n);
+
   // -------------------------------- clause 1b: something imports it (no premise)
   const graphCache = new Map();
   for (const pkg of pkgs.packages) {
@@ -461,11 +567,17 @@ export function run({ root = process.cwd(), premises = null } = {}) {
             .map((v) => normRel(`${pkg.rel}/${v.replace(/^\.\//, '')}`))
             .filter((v) => v !== null && existsSync(join(root, v)))
         : [];
-    const entries = fromExports.length > 0 ? fromExports : ENTRY_CANDIDATES.map((c) => `${pkg.rel}/${c}`).filter((c) => existsSync(join(root, c)));
+    const declared = fromExports.length > 0 ? fromExports : ENTRY_CANDIDATES.map((c) => `${pkg.rel}/${c}`).filter((c) => existsSync(join(root, c)));
+    // A package has at most two kinds of entry: the one its CALLERS import (the
+    // manifest's "exports", or the conventional file an app's host names) and the
+    // one the OPERATING SYSTEM starts. Both seed the graph, and the second is read
+    // from the Dockerfile rather than guessed by filename.
+    const fromContainer = container.entries.filter((e) => under(e, srcRoot));
+    const entries = [...new Set([...declared, ...fromContainer])];
     if (entries.length === 0) {
       unreached.push(
-        `clause 1b for ${pkg.rel}: no declared entry point — ${pkg.manifestRel} has no string "exports" target and none of ${ENTRY_CANDIDATES.join(', ')} exists, ` +
-          `so the ${mine.length} source file(s) there are reachable from nothing this light can name`,
+        `clause 1b for ${pkg.rel}: no declared entry point — ${pkg.manifestRel} has no string "exports" target, none of ${ENTRY_CANDIDATES.join(', ')} exists ` +
+          `and ${DOCKERFILE} names none under ${srcRoot}, so the ${mine.length} source file(s) there are reachable from nothing this light can name`,
       );
       continue;
     }

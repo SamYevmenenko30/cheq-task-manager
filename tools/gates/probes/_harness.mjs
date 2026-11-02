@@ -624,6 +624,20 @@ export const WORKSPACE_ROOT_FILES = Object.freeze([
   'playwright.config.ts',
 ]);
 
+/**
+ * Root files copied WHEN THIS REPOSITORY HAS THEM, rather than refused when it does
+ * not — the `e2e` rule of `WORKSPACE_TREES`, applied to a file.
+ *
+ * `Dockerfile` is here because a container is a thing a repository may or may not
+ * have, and asserting its presence in the harness would be the harness asserting a
+ * fact about the PRODUCT. What makes the absence loud anyway is that the file is
+ * load-bearing for a gate: `L-orphans` seeds clause 1b from the image's esbuild
+ * entry (`containerEntries`), so a fixture that failed to copy it reports
+ * `apps/api/src/server.ts` as an orphan and every probe asserting that a copy of
+ * this repository is GREEN goes red. A quiet skip here cannot stay quiet.
+ */
+export const WORKSPACE_ROOT_FILES_IF_PRESENT = Object.freeze(['Dockerfile']);
+
 /** The tracked trees copied wholesale. `e2e` does not exist yet and is skipped when absent. */
 export const WORKSPACE_TREES = Object.freeze(['packages', 'apps', 'e2e']);
 
@@ -678,7 +692,8 @@ export function writeWorkspace(r, { lock = true, commit = 'chore: scaffold', tre
   const listed = lsFiles([...trees], { cwd: REPO_ROOT });
   assert(listed.ok, `writeWorkspace: git ls-files failed in ${REPO_ROOT}: ${listed.reason ?? 'no reason given'}`);
   const baseline = listed.files.filter((rel) => !IN_FLIGHT_RE.test(rel));
-  const wanted = [...baseline, ...WORKSPACE_ROOT_FILES, ...(lock ? ['pnpm-lock.yaml'] : [])];
+  const ifPresent = WORKSPACE_ROOT_FILES_IF_PRESENT.filter((rel) => existsSync(join(REPO_ROOT, rel)));
+  const wanted = [...baseline, ...WORKSPACE_ROOT_FILES, ...ifPresent, ...(lock ? ['pnpm-lock.yaml'] : [])];
   for (const rel of wanted) {
     const abs = join(REPO_ROOT, rel);
     if (!existsSync(abs)) {
@@ -693,7 +708,14 @@ export function writeWorkspace(r, { lock = true, commit = 'chore: scaffold', tre
     `writeWorkspace: ${missing.length} declared file(s) are missing from ${REPO_ROOT} and the fixture would differ from the repository: ${missing.join(', ')}`,
   );
   const head = commit === false ? null : (r.commit(commit), r.head());
-  return { files, missing, head, inFlightExcluded: listed.files.filter((rel) => IN_FLIGHT_RE.test(rel)) };
+  return {
+    files,
+    missing,
+    head,
+    inFlightExcluded: listed.files.filter((rel) => IN_FLIGHT_RE.test(rel)),
+    ifPresent,
+    ifPresentAbsent: WORKSPACE_ROOT_FILES_IF_PRESENT.filter((rel) => !ifPresent.includes(rel)),
+  };
 }
 
 /** `tools/gates` as the subject imports it. `probes/` and `fixtures/` stay out: the

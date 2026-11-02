@@ -1043,6 +1043,50 @@ export const probes = [
     return null;
   }),
 
+  probe('L-orphans: the Dockerfile declares the process entry point, so a module nothing imports is not an orphan — and a path it names that nobody wrote is a fail', async (ctx) => {
+    // MEASURED 2026-11-02 on the commit that added `apps/api/src/server.ts`: this light called the
+    // API's process entry "nothing imports this module — no entry point of apps/api
+    // (apps/api/src/index.ts) and no test reaches it", and both cures it offered were wrong.
+    // Deleting it leaves no way to start the service; importing it from `src/index.ts` — the module
+    // twelve api tests import — would make `listen()` a side effect of being imported.
+    const skip = needTsc(ctx);
+    if (skip !== null) return skip;
+    const fx = workspace('orphans-container', { resolve: true });
+
+    // Self-contained on purpose: clause 1b asks about REACHABILITY, and a seed is reached by being
+    // a seed, so the module needs no import of its own to make the point.
+    fx.r.write('packages/core/src/server.ts', "export const SERVED = 'probe' as const;\n");
+
+    // APPENDED, never replaced. Once this repository has its own Dockerfile the fixture copies it
+    // (WORKSPACE_ROOT_FILES_IF_PRESENT), and overwriting it here would orphan the entry THAT file
+    // declares — the probe would then be red for a reason it is not about.
+    const base = fx.r.read('Dockerfile');
+    const dockerfile = (line) => `${base}${base === '' || base.endsWith('\n') ? '' : '\n'}RUN pnpm exec esbuild ${line} --bundle --outfile=/build/probe.cjs\n`;
+
+    fx.r.write('Dockerfile', dockerfile('packages/core/src/server.ts'));
+    fx.r.commit('chore: a process entry point, declared where a docker build reads it');
+    const reached = await light(fx, 'L-orphans');
+    assertLight(reached, 'pass', /Dockerfile declares \d+ entry point\(s\) of the image, which seed clause 1b/, 'L-orphans with a process entry point the Dockerfile declares');
+    // The note is asserted on the PASS deliberately: without it a green row cannot be told apart
+    // from a Dockerfile this reader silently failed to understand.
+    alsoMatches(reached, 'L-orphans naming the container entry it read', /packages\/core\/src\/server\.ts/);
+
+    // The other direction, which is what reading the Dockerfile buys over suppressing the row: a
+    // rename the Dockerfile did not follow used to break the image on whichever machine next built
+    // it, with nothing in the repository saying so first.
+    fx.r.write('Dockerfile', dockerfile('packages/core/src/renamed-by-nobody.ts'));
+    fx.r.commit('chore: the Dockerfile names a module nobody wrote');
+    const dangling = await light(fx, 'L-orphans');
+    assertLight(
+      dangling,
+      'fail',
+      /Dockerfile:\d+: names "packages\/core\/src\/renamed-by-nobody\.ts" as an entry point of the image and this repository holds no such file/,
+      'L-orphans with a Dockerfile naming an entry point the repository does not hold',
+    );
+    fx.r.cleanup();
+    return null;
+  }),
+
   probe('L-orphans: a spec contract reached only by tests is the DESIGNED state; the same module one directory away is an orphan', async (ctx) => {
     // MEASURED on CHQ-001, 2026-11-02: this light refused the test-phase commit, and the cure it
     // offered — "move it under the test directory" — would have put the agreed shape where the
