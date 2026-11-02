@@ -1,0 +1,19 @@
+.badge {
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.healthy {
+  color: #0b6b3a;
+  background: #e3f6ea;
+}
+
+.down {
+  color: #8c1c13;
+  background: #fdeae8;
+}

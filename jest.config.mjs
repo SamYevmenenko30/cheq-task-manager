@@ -49,6 +49,16 @@
 //    tools/gates/lights/visible.mjs:212) and it hides nothing: it makes one
 //    third-party module loadable. TD-0016 records the alternative — moving the
 //    pinned Node to 24.9+ — and why that choice is not this ticket's to make.
+// 7. The `web` project maps `*.css` to a stub, because the SPA's styling is CSS
+//    Modules (a Vite feature with no dependency, which is why CHQ-003 chose it)
+//    and this runner has no CSS pipeline. MEASURED 2026-11-02: without the entry
+//    all ELEVEN suites of apps/web/test fail to COLLECT with `SyntaxError:
+//    Unexpected token '.'` and the run reports `Tests: 0 total` — the shape a
+//    reader must not mistake for a broken component. It is `moduleNameMapper`,
+//    which is NOT one of L-visible's three doors into this file (testMatch,
+//    testPathIgnorePatterns, modulePathIgnorePatterns) and hides nothing: every
+//    file stays visible to tsc, to oxlint and to the runner. The stub exports no
+//    class, so no case can pass because of a style. TD-0022.
 
 const transform = {
   '^.+\\.(t|j)sx?$': [
@@ -135,6 +145,13 @@ export default {
       rootDir: './apps/web',
       testMatch: ['<rootDir>/test/**/*.test.{ts,tsx}'],
       setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
+      // Header fact 7: the ONE project whose sources import a non-JS asset. Vite compiles a
+      // CSS module; this runner has no CSS pipeline at all, so the import is stubbed.
+      // TD-0022.
+      moduleNameMapper: {
+        ...shared.moduleNameMapper,
+        '\\.css$': '<rootDir>/test/support/css-module.ts',
+      },
     },
   ],
 

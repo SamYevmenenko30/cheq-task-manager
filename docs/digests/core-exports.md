@@ -5,7 +5,7 @@
 **GENERATED — do not edit (node tools/gates/digest.mjs --fix)**
 
 - format: `1` — bumped whenever the rendering changes, which makes every projection stale until one `--fix`
-- sources sha256: `7273efe71055908bda28e69f5d17a1ee4d5b281c4c187f427e677084dfd59e6d`
+- sources sha256: `65ec3c659aa0ec814d0456092569aff274fb1c4e26bee48dd83c99516ec58049`
 - derived from: `packages/core/src/` plus `packages/core/package.json` (the `exports` map, which decides what is a surface at all) — 8 input files, each one listed at the end
 
 Every export of @cheq/core with its signature and file:line, plus the sha256 of the sources it was derived from — the surface a spec may cite and an api/web role may call, readable without opening the package.
@@ -16,7 +16,7 @@ Read from `packages/core/package.json`. An importer can reach a symbol of this p
 
 | specifier | target | condition | symbols | declared at |
 |---|---|---|---|---|
-| `@cheq/core` | `packages/core/src/index.ts` | — | `CORE_PACKAGE`, `CreateTask`, `CreateTaskInput`, `CreateTaskOutcome`, `ListTasks`, `Task`, `TaskStore`, `createTask`, `listTasks` | `packages/core/package.json:9` |
+| `@cheq/core` | `packages/core/src/index.ts` | — | `CORE_PACKAGE`, `CreateTask`, `CreateTaskInput`, `CreateTaskOutcome`, `INVALID_TITLE_REASON`, `ListTasks`, `Task`, `TaskStore`, `acceptTitle`, `createTask`, `listTasks` | `packages/core/package.json:9` |
 | `@cheq/core/testing` | `packages/core/src/testing/digest.ts` | — | `digest`, `stableStringify` | `packages/core/package.json:10` |
 
 ## The public surface — every symbol an importer can reach
@@ -27,9 +27,11 @@ Read from `packages/core/package.json`. An importer can reach a symbol of this p
 | `CreateTask` | `@cheq/core` | type re-export | `type CreateTask = (store: TaskStore, input: CreateTaskInput) => Promise<CreateTaskOutcome>` | `packages/core/src/contracts/CHQ-001/task.ts:54` |
 | `CreateTaskInput` | `@cheq/core` | type re-export | `interface CreateTaskInput` | `packages/core/src/contracts/CHQ-001/task.ts:38` |
 | `CreateTaskOutcome` | `@cheq/core` | type re-export | `type CreateTaskOutcome = \| { readonly status: 'accepted'; readonly task: Task }` | `packages/core/src/contracts/CHQ-001/task.ts:49` |
+| `INVALID_TITLE_REASON` | `@cheq/core` | re-export | `const INVALID_TITLE_REASON = 'title must be a non-empty string'` | `packages/core/src/tasks/title-rule.ts:12` |
 | `ListTasks` | `@cheq/core` | type re-export | `type ListTasks = (store: TaskStore) => Promise<readonly Task[]>` | `packages/core/src/contracts/CHQ-001/task.ts:57` |
 | `Task` | `@cheq/core` | type re-export | `interface Task` | `packages/core/src/contracts/CHQ-001/task.ts:15` |
 | `TaskStore` | `@cheq/core` | type re-export | `interface TaskStore` | `packages/core/src/contracts/CHQ-001/task.ts:26` |
+| `acceptTitle` | `@cheq/core` | re-export | `function acceptTitle(title: unknown): string \| undefined` | `packages/core/src/tasks/title-rule.ts:21` |
 | `createTask` | `@cheq/core` | re-export | `const createTask: CreateTask = async (store, input) => …` | `packages/core/src/tasks/create-task.ts:11` |
 | `digest` | `@cheq/core/testing` | function | `function digest(state: unknown): string` | `packages/core/src/testing/digest.ts:86` |
 | `listTasks` | `@cheq/core` | re-export | `const listTasks: ListTasks = (store) => …` | `packages/core/src/tasks/list-tasks.ts:9` |
@@ -41,8 +43,6 @@ An `export` keyword inside the package is not a promise to an importer: only the
 
 | symbol | kind | signature | declared at | reach |
 |---|---|---|---|---|
-| `INVALID_TITLE_REASON` | const | `const INVALID_TITLE_REASON = 'title must be a non-empty string'` | `packages/core/src/tasks/title-rule.ts:12` | reached from an entry point by a relative import |
-| `acceptTitle` | function | `function acceptTitle(title: unknown): string \| undefined` | `packages/core/src/tasks/title-rule.ts:21` | reached from an entry point by a relative import |
 | `sha256Hex` | function | `function sha256Hex(text: string): string` | `packages/core/src/testing/sha256.ts:149` | reached from an entry point by a relative import |
 | `sha256HexOfBytes` | function | `function sha256HexOfBytes(bytes: readonly number[]): string` | `packages/core/src/testing/sha256.ts:63` | reached from an entry point by a relative import |
 | `utf8Bytes` | function | `function utf8Bytes(text: string): number[]` | `packages/core/src/testing/sha256.ts:33` | reached from an entry point by a relative import |
@@ -55,7 +55,7 @@ The third column is what the scan found in the file, so a file that contributes 
 |---|---|---|
 | `packages/core/package.json` | `d4064709a86e368e4ab32cbe5ce2e82e56e80694a9366379c94eed555b03cbb5` | not scanned (not .ts/.tsx) |
 | `packages/core/src/contracts/CHQ-001/task.ts` | `2272311c1bb9dc7dc6ba129c528d1f09801579757be5a9064d5739522ec9e6e0` | 6 exports, 0 re-exports |
-| `packages/core/src/index.ts` | `df997fe167ec60dfe30908a153ebef4e3404cdd361bd875d4e0c0a0eed024f0f` | 1 export, 3 re-exports |
+| `packages/core/src/index.ts` | `1340f0d759a473396bc84e32056d5ebb7868220b55dd2fc17be91c76276a3f37` | 1 export, 4 re-exports |
 | `packages/core/src/tasks/create-task.ts` | `03c1557c6803da7cd4ba0206675804b394ccb19a5f65ab0a1dd4e99953523ac7` | 1 export, 0 re-exports |
 | `packages/core/src/tasks/list-tasks.ts` | `c4106b9f50eb51e7f107dcf1bf32df2f73d7f6462ccfd98d6158d08983176da8` | 1 export, 0 re-exports |
 | `packages/core/src/tasks/title-rule.ts` | `05cd2de7f789bff261c7ab98d1544e021410b5d86ca66ad938a901933b688e2f` | 2 exports, 0 re-exports |

@@ -19,15 +19,17 @@
     "cannot be the authority on both 'what is hidden' and 'what is claimed' without its own numbers",
     "becoming unfalsifiable.",
     "",
-    "ENTRIES IS EMPTY, AND THAT IS A STATEMENT, NOT A GAP. As of 2026-11-02 nothing under",
-    "packages/, apps/ or e2e/ is hidden from a walk: no tsconfig in this repository has an",
-    "'exclude' key (measured), jest.config.mjs declares no testPathIgnorePatterns and no",
-    "modulePathIgnorePatterns, and .oxlintrc.jsonc:60-67 hides only node_modules, dist, coverage,",
-    "playwright-report, test-results and .ci — of which only coverage/ exists, at the repository",
-    "root (.gitignore:11) and not under those three roots. So the honest list is empty. The day a",
-    "build output appears (an apps/web/dist, say) L-visible will refuse it until it is declared",
-    "here, and that refusal is the designed behaviour, not a false alarm: a declared blind spot is",
-    "auditable, an undeclared one is how a subtree stops being checked without anyone noticing.",
+    "ENTRIES HOLDS ONE, AND IT IS THE ONE THIS FILE PREDICTED. Until 2026-11-02 the list was empty:",
+    "no tsconfig in this repository has an 'exclude' key (measured), jest.config.mjs declares no",
+    "testPathIgnorePatterns and no modulePathIgnorePatterns, and of .oxlintrc.jsonc:59-66's six",
+    "patterns only coverage/ existed, at the repository root and not under those three roots. CHQ-003",
+    "gave apps/web its first build script, so `vite build` produced apps/web/dist and L-visible",
+    "refused it by name \u2014 the behaviour the paragraph that stood here described in advance. It is",
+    "declared below rather than un-hidden, because a build output is derived state: it is rewritten by",
+    "every build, it is reproduced by `pnpm --filter @cheq/web build`, and committing it would make",
+    "the repository hold two copies of the same source. TWO doors hide it and both are named: it is",
+    "matched by .gitignore's `dist/` and by .oxlintrc.jsonc's `**/dist/**`, and an entry claiming only",
+    "one of them is a fail.",
     "",
     "WHAT NEVER NEEDS AN ENTRY. A '.'-prefixed segment (.git, .ci, .pnpm) and node_modules are",
     "already invisible to every tool in this toolchain, so declaring one would change nothing;",
@@ -46,5 +48,14 @@
     "by reading. Naming the doors is what lets L-visible compare the declaration with what it",
     "finds, so an entry that claims one door while a second also hides the path is a fail."
   ],
-  "entries": []
+  "entries": [
+    {
+      "path": "apps/web/dist",
+      "doors": [
+        "gitignore",
+        "oxlint-ignorePatterns"
+      ],
+      "why": "Vite's build output for the SPA \u2014 derived from apps/web/src on every `pnpm --filter @cheq/web build`, synced into the S3 bucket by infra/, and never a source anything should check or commit."
+    }
+  ]
 }

@@ -2,7 +2,7 @@
   "name": "cheq-task-manager",
   "private": true,
   "type": "module",
-  "description": "Task manager built spec-first: a vision text becomes a spec, a spec becomes red tests, red tests become code the toolchain itself has judged. The gates in tools/gates have ZERO runtime dependencies — each is Node 22 ESM — so a gate runs in a fresh worktree before an install finishes. Questions about types are delegated to tsc; no gate parses TypeScript itself. tools/gates is deliberately NOT a workspace package: a package.json there would give it dependencies and it would stop running exactly when it is needed.",
+  "description": "Task manager built spec-first: a vision text becomes a spec, a spec becomes red tests, red tests become code the toolchain itself has judged. The gates in tools/gates have ZERO runtime dependencies \u2014 each is Node 22 ESM \u2014 so a gate runs in a fresh worktree before an install finishes. Questions about types are delegated to tsc; no gate parses TypeScript itself. tools/gates is deliberately NOT a workspace package: a package.json there would give it dependencies and it would stop running exactly when it is needed.",
   "engines": {
     "node": ">=22"
   },
@@ -45,6 +45,6 @@
     "e2e": "node tools/gates/run.mjs e2e",
     "lint": "node tools/gates/run.mjs lint",
     "dev:web": "pnpm --filter @cheq/web exec vite",
-    "dev:api": "pnpm --filter @cheq/api exec tsx watch src/index.ts"
+    "dev:api": "pnpm --filter @cheq/api exec tsx watch src/server.ts"
   }
 }
