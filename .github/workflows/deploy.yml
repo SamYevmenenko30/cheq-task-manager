@@ -40,7 +40,12 @@ permissions:
 jobs:
   test:
     name: gates
-    runs-on: ubuntu-latest
+    # PINNED, not `ubuntu-latest`. The runner itself warned on this workflow's FIRST run that "the
+    # ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026" — a date already
+    # past, so that label is moving under us now. Everything else here reads its version from a
+    # declared source (`.nvmrc`, `packageManager`, the terraform version below, the provider lock);
+    # a floating runner image was the one exception.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,7 +107,7 @@ jobs:
     # Only on main, and only once the bootstrap stage has been applied and its outputs recorded.
     # `vars.*` is empty when unset, so this reads as false until a human sets it.
     if: github.event_name == 'push' && vars.AWS_DEPLOY_ROLE_ARN != ''
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write # the OIDC token; without it there is nothing to exchange for credentials
       contents: read
