@@ -1494,22 +1494,35 @@ export function main(argvIn = process.argv.slice(2)) {
     return 2;
   }
 
+  // THE EMPTY TREE IS A PREMISE THIS GATE MAY NOT NEED, so it is no longer refused here.
+  //
+  // `git diff` against the empty tree works perfectly well — only a WORKTREE cannot be CHECKED OUT
+  // at it — and the scope is read from a diff. A range with no added spec test has nothing to run
+  // on a base at all, so refusing at argument time made the commonest state of a young repository
+  // read CANNOT VERIFY, which BLOCKS, when the honest answer is `n/a`: `ready` derives the empty
+  // tree whenever docs/specs/ holds no spec yet, so `ready` could never pass until the first spec
+  // existed, for a reason that had nothing to do with any test.
+  //
+  // So the refusal is deferred to `emptyBaseRefusal` below, which is printed immediately before the
+  // worktree is made — i.e. only once the scope is known to be non-empty and the base is therefore
+  // actually needed.
   let mergeBase = null;
+  let emptyBaseRefusal = null;
   if (args.since !== null) {
     if (args.since === EMPTY_TREE) {
-      console.error(
-        `[red-check] ${CV}: --since names the empty tree (${EMPTY_TREE}). A worktree can only be checked out at a COMMIT,\n` +
-          '  so there would be no base to run the tests against.\n' +
-          '  What to do: pass --since <first commit> or --base <branch>.',
-      );
-      return 2;
+      mergeBase = EMPTY_TREE;
+      emptyBaseRefusal =
+        `--since names the empty tree (${EMPTY_TREE}). A worktree can only be checked out at a COMMIT,\n` +
+        '  so there would be no base to run the tests against.\n' +
+        '  What to do: pass --since <first commit> or --base <branch>.';
+    } else {
+      const r = revParse(args.since, { cwd: root });
+      if (!r.ok) {
+        console.error(`[red-check] ${CV}: --since ${JSON.stringify(args.since)} does not resolve to a commit: ${r.reason}`);
+        return 2;
+      }
+      mergeBase = r.sha;
     }
-    const r = revParse(args.since, { cwd: root });
-    if (!r.ok) {
-      console.error(`[red-check] ${CV}: --since ${JSON.stringify(args.since)} does not resolve to a commit: ${r.reason}`);
-      return 2;
-    }
-    mergeBase = r.sha;
   } else {
     const b = baseRev(args.base, { cwd: root });
     if (!b.ok) {
@@ -1517,14 +1530,14 @@ export function main(argvIn = process.argv.slice(2)) {
       return 2;
     }
     if (b.kind === 'empty-tree') {
-      console.error(
-        `[red-check] ${CV}: ${b.reason}. Every file would count as added, and a worktree cannot be checked out at the empty tree,\n` +
-          '  so nothing could be run on a base.\n' +
-          `  What to do: create ${args.base}, or pass --since <sha> naming a real commit.`,
-      );
-      return 2;
+      mergeBase = EMPTY_TREE;
+      emptyBaseRefusal =
+        `${b.reason}. Every file would count as added, and a worktree cannot be checked out at the empty tree,\n` +
+        '  so nothing could be run on a base.\n' +
+        `  What to do: create ${args.base}, or pass --since <sha> naming a real commit.`;
+    } else {
+      mergeBase = b.rev;
     }
-    mergeBase = b.rev;
   }
 
   const ctx = newCtx({ root, args, head, mergeBase, startedAt });
@@ -1542,7 +1555,20 @@ export function main(argvIn = process.argv.slice(2)) {
   if (!ctx.scope.added.length && !ctx.scope.modified.length) {
     if (ctx.unverifiable.length) return report(ctx);
     log('no added test file and no new case in a modified test file on this branch — nothing to red-check ✓');
-    return 0;
+    // A GATE THAT JUDGED AN EMPTY SCOPE HAS A VERDICT ABOUT IT, and until it records one, `ready`
+    // cannot tell that from a gate that died before writing anything — which is exactly what
+    // ready.mjs's `cure` for this step says. So the run directory is made here too and `report`
+    // writes the same summary it writes for any other outcome, with all three verdict arrays empty.
+    // One writer, not a second: a summary assembled at a second site is a second answer waiting to
+    // disagree.
+    ctx.runDir = makeRunDir({ label: 'redcheck', kind: ctx.args.kind, root }).dir;
+    return report(ctx);
+  }
+
+  // The base is needed from here on, so this is where an unusable one is refused.
+  if (emptyBaseRefusal !== null) {
+    console.error(`[red-check] ${CV}: ${emptyBaseRefusal}`);
+    return 2;
   }
 
   ctx.runDir = makeRunDir({ label: 'redcheck', kind: ctx.args.kind, root }).dir;
