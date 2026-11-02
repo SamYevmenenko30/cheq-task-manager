@@ -277,11 +277,26 @@ a scheme (`https://ch-…on.aws`), so the stripping branch in `infra/api.tf` is 
 other is dead code. And `cpu = "256"` / `memory = "512"` are ECS task units, not vCPUs and gigabytes:
 the service created and runs one task on a quarter vCPU.
 
-**What is still not verified.** The applies above ran with an administrator's credentials, not with
-the CI deploy role, so `infra/bootstrap/ci.tf`'s policy remains a prediction until a pipeline run
-exercises it. `terraform destroy` has never run, and Express Mode creates roughly ten resources under
-the infrastructure role that Terraform's state does not track — a community report says the load
-balancer and the certificate survive a destroy. Both stay in
+**The pipeline reproduces the deployment, and proving that cost three corrections.** The deploy
+policy was written from what the workflow does rather than from a failing apply, which made it a
+prediction; each run then denied exactly one thing and named it. The OIDC subject above was the
+first. The second was `logs:DescribeLogGroups` — present in the policy but scoped to
+`log-group:/aws/ecs/*`, while IAM evaluates that list operation against an ARN carrying no group
+name, so the statement matched nothing and the **plan**, not the apply, failed. The third was
+`iam:PassRole`, conditioned on `iam:PassedToService = ecs-tasks.amazonaws.com`, which
+`UpdateExpressGatewayService` either leaves unset or sets differently — the denial cannot tell those
+apart, so the condition became `StringEqualsIfExists` over both ECS principals and the comment says
+plainly what that costs. Run 41472397026 is green end to end, including the workflow's own `curl -f`
+and `grep '"status":"ok"'` against the live URL.
+
+The role proved what it can do by doing it: push to ECR, read and write the state, refresh every
+resource, update the service, sync the bucket, invalidate the edge. It still cannot create or modify
+an IAM role or policy, or read a single log event.
+
+**What is still not verified:** `terraform destroy`. It has never run, and Express Mode creates
+roughly ten resources under the infrastructure role that Terraform's state does not track — a
+community report says the load balancer and the certificate survive a destroy. That is the whole of
+what remains in
 [TD-0019](docs/tech-debt/TD-0019-the-infrastructure-is-written-and-nothing-has-run-it.md).
 
 **One standing hazard.** The same organization carries `BudgetsSpendLimitDenyNewWorkloads`, which AWS
@@ -290,9 +305,12 @@ resources. It is not blocking today. If an apply that worked starts failing with
 nothing here changed, read that policy first — and fix the budget, not the policy, because the
 Budgets service reattaches what it manages.
 
-**The store is one process's memory.** Every deploy and every task replacement empties the task list.
-That is CHQ-001's recorded decision, not an oversight, and the scaling target is pinned to 1..1 so a
-second task can never serve a different list.
+**The store is one process's memory, and the pipeline demonstrated it.** The deploy that turned the
+pipeline green replaced the ECS task with a new image, and `GET /tasks` went from two entries to `[]`
+with `uptime` back to seconds. Every deploy does that. It is CHQ-001's recorded decision rather than
+an oversight, and the scaling target is pinned to 1..1 so a second task can never serve a different
+list — a real database is the first thing this design would need in production, and
+[Scalability](#scalability--10-traffic-tomorrow) says what changes with it.
 ---
 
 ## Assumptions, and what is not finished

@@ -1,6 +1,6 @@
 # TD-0019: the infrastructure is written and nothing has validated, planned or applied it
 
-**Status:** Open, NARROWED · ~~the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run~~ ~~`validate` RAN; `plan` RAN for `infra/bootstrap`; still owed are both APPLIES~~ **BOTH APPLIES RAN on 2026-11-02 in `eu-north-1` and the stack is serving at <https://d38quc42vrn64x.cloudfront.net>.** What is left is narrower and named below: the CI deploy role's policy has never been exercised (the applies used an administrator's credentials), and `terraform destroy` has never run against a resource set Express Mode partly keeps out of state
+**Status:** Open, NARROWED TO ONE THING — `terraform destroy` · ~~the declared acceptance of CHQ-005 — `terraform validate` and a plan — has not run~~ ~~`validate` RAN; `plan` RAN for `infra/bootstrap`; still owed are both APPLIES~~ **BOTH APPLIES RAN on 2026-11-02 in `eu-north-1` and the stack is serving at <https://d38quc42vrn64x.cloudfront.net>.** What is left is narrower and named below: the CI deploy role's policy has never been exercised (the applies used an administrator's credentials), and `terraform destroy` has never run against a resource set Express Mode partly keeps out of state
 **Area:** `infra/`, `infra/bootstrap/` · `docs/specs/BACKLOG.md` (the short path's acceptance rule)
 **Raised:** 2026-11-02
 
@@ -82,12 +82,26 @@ line — because a tool's silence is not a verdict until you have seen it speak.
   so the stripping branch in `infra/api.tf` is the live one and the other is dead code. It stays,
   because a defensive strip over a value that already lacks a scheme is a no-op, and the alternative
   is a CloudFront `domain_name` with a scheme in it if AWS ever changes the shape.
-- **Whether the deploy policy is sufficient. STILL UNVERIFIED, and the applies did not touch it.**
-  Both applies on 2026-11-02 used an administrator's own credentials, not the `cheq-deploy` role CI
-  assumes, so `infra/bootstrap/ci.tf`'s policy has still never authorised a single call. The honest
-  way to find a missing IAM action is to run it and read the denial; the first pipeline run on
-  `main` is that test, and a failure there is expected to be a missing action rather than a missing
-  resource.
+- ~~**Whether the deploy policy is sufficient.**~~ **SETTLED 2026-11-02: it is, after three
+  corrections the pipeline found one per run.** The policy was written from what the workflow does
+  rather than from a failing apply, and reading the denials is what fixed it:
+
+  | run | denied | why the statement did not apply | fix |
+  |---|---|---|---|
+  | 41466707997 | `sts:AssumeRoleWithWebIdentity` | the trust policy pinned the classic OIDC `sub`; this repository signs the immutable form `repo:<owner>@<id>/<name>@<id>` | `github_subject_prefix`, read from GitHub |
+  | 41466707997 (re-run) | `logs:DescribeLogGroups` | a list operation, evaluated against `log-group::log-stream:` — an ARN with no group name — so a statement scoped to `log-group:/aws/ecs/*` matched nothing | its own statement on `*` |
+  | 41469834457 | `iam:PassRole` | `StringEquals` on `iam:PassedToService`, which `UpdateExpressGatewayService` either leaves unset or sets to something else — the denial cannot distinguish them | `StringEqualsIfExists` + both ECS principals |
+
+  Run **41472397026 is green end to end**: image built and pushed by the role, `terraform apply`,
+  SPA synced, edge invalidated, and the workflow's own `curl -f` + `grep '"status":"ok"'` against the
+  live URL. What is NOT known, and is recorded rather than glossed: whether `iam:PassedToService` was
+  absent or merely different. A success tells us it was one of the two and not which.
+
+  What the role proved it can do, by doing it: ECR login, `DescribeImages`, layer upload and
+  `PutImage`; read and write the Terraform state in S3; refresh every resource in the application
+  root; update the Express Mode service; sync and delete objects in the web bucket; create a
+  CloudFront invalidation. What it still cannot do, by design: create or modify any IAM role or
+  policy, and read a single log event.
 - **Whether `terraform destroy` is clean.** Express Mode creates roughly ten resources under the
   infrastructure role, none of them in Terraform's state. A community report says the load balancer
   and the ACM certificate survive a destroy; UNVERIFIED here, and it is a bill rather than a bug if
