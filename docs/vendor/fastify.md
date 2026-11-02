@@ -1,7 +1,7 @@
 # Fastify — `fastify`
 
 - **Version:** 5.12.7 · **Declared in:** `apps/api/package.json:9` (`^5.12.7`) · **Resolved by:** `pnpm-lock.yaml` importer `apps/api` → `dependencies.fastify.version` · **Added:** 2026-11-01, commit `4ddd4e2` (`chore: scaffold, gates and doctrine`), declared there by the line `package: fastify — the HTTP adapter of apps/api; tests reach it through app.inject(), never a live port` · **Licence:** MIT (`fastify/package.json` `"license": "MIT"`, full text in `fastify/LICENSE`)
-- **Adapter:** none yet. **Not one line of this repository imports `fastify`** — `apps/api/src/` holds a single file, `apps/api/src/index.ts`, and it is a marker exporting a string constant (`apps/api/src/index.ts:7`). When the first route arrives it belongs in `apps/api/src/`, built by a factory a test can import (`.claude/agents/api.md:39`); rule 15's `apps/api/src/adapters/**` (`AGENTS.md:436`) is a declaration no light reads today (grep of `tools/gates/` for `adapters`, 2026-11-01).
+- **Adapter:** `apps/api/src/app.ts` — the app factory `buildApp`, the only module in this repository that imports `fastify`, reached from outside through `apps/api/src/index.ts`. CHQ-002 put it there (2026-11-02): the three endpoints, plus the request-logging hook in `apps/api/src/request-log.ts`, which takes the instance as an argument and so does not import fastify's factory. The first revision of this file said "none yet"; the surface that first use consumed is the table **What CHQ-002 uses** below, and every member in it is cited and measured. Rule 15's `apps/api/src/adapters/**` (`AGENTS.md:474`) stays a declaration no light reads (grep of `tools/gates/` for `adapters`, 2026-11-01): `apps/api` is *itself* the HTTP adapter (`apps/api/package.json:6`), and what rule 15 protects — no third-party import inside `@cheq/core` — is held by `L-core-purity`.
 - **Why it is here:** because the rule says BEFORE first use, and there is no use. `docs/vendor/README.md` calls `fastify` the normal case the rule was written for: declared and not yet imported. `.claude/skills/tests-from-spec/SKILL.md:52` records the gap this file closes in so many words — "the injection method's exact signature is cited from Fastify's own docs at first use, UNVERIFIED here until then". It is no longer UNVERIFIED: the signature is below, cited and measured.
 - **Typechecks on this toolchain: VERIFIED** 2026-11-01 — a temporary `apps/api/src/` probe importing the factory and the three types below, then calling `app.get`, `app.inject`, `res.json()` and `app.close()`: `./node_modules/.bin/tsc --noEmit --pretty false -p apps/api/tsconfig.json` exit 0, zero diagnostics, and `./node_modules/.bin/tsx` on the same file exit 0. Both exit codes were captured into variables, never read through a pipe (rule 1, `AGENTS.md:13`). The probe was deleted in the command that created it, and `git status --porcelain` was empty afterwards.
 
@@ -79,6 +79,58 @@ From `light-my-request/types/index.d.ts:83` onwards:
 | `stream` | `() => Readable` | `light-my-request/types/index.d.ts:96` | |
 | `isLightMyRequest` | `true` | `light-my-request/types/index.d.ts:98` | **declared and absent at runtime — see the defect below** |
 
+## What CHQ-002 uses
+
+Every member this repository actually calls, with the line that declares it. Cited is not measured:
+the **measured** column says whether a probe or a green assertion observed the runtime behaviour, and
+the assertion that did so is named. The whole table was exercised by the api run of record of
+CHQ-002 (29 of 29 cases), so nothing here rests on memory.
+
+| member | signature / type | cited from | measured |
+|---|---|---|---|
+| `fastify(opts)` | the plain-http overload | `fastify/fastify.d.ts:296` | yes — every case builds an app |
+| `FastifyServerOptions.logger` | `boolean \| FastifyLoggerOptions & PinoLoggerOptions` | `fastify/fastify.d.ts:141` | yes — `logger: false`, and S6 counts EXACTLY ONE line from this repository's own sink, which a second logger on the same stream would not have broken but would have made unreadable |
+| `FastifyServerOptions.genReqId` | `(req: RawRequestDefaultExpression) => string` | `fastify/fastify.d.ts:151` | yes — S9: two injections into one app produced two different `request.id` values, and every entry of one request the same one |
+| `app.get` · `app.post` | `RouteShorthandMethod` | `fastify/types/instance.d.ts:194` · `:197` | yes — S1, S2, S3, S4 |
+| `app.addHook('onResponse', hook)` | `name: 'onResponse'` overload; the hook is `onResponseHookHandler` unless it is async | `fastify/types/instance.d.ts:355-370` (the name literal at `:366`) | yes — S6, S9, S10 |
+| `onResponseHookHandler` | `(this, request, reply, done: HookHandlerDoneFunction) => void` | `fastify/types/hooks.d.ts:424` | yes — the sync form is the one used; `HookHandlerDoneFunction` is `fastify/types/hooks.d.ts:17` |
+| `onResponseAsyncHookHandler` | `(this, request, reply) => Promise<unknown>` | `fastify/types/hooks.d.ts:442` | no — the async form is declared and not used here |
+| `request.id` | `string` | `fastify/types/request.d.ts:58` | yes — S9 |
+| `request.method` | `string` | `fastify/types/request.d.ts:102` | yes — S6 asserts `GET` and `POST` |
+| `request.url` | `string` | `fastify/types/request.d.ts:95` | yes — S6 asserts `/tasks`. It is the REQUESTED path; `request.routeOptions.url` (`:103`, `:26`) is the route pattern and is `undefined` on a 404, and is not used here |
+| `request.body` | `RequestType['body']`, i.e. `unknown` by default | `fastify/types/request.d.ts:65` → `fastify/types/utils.d.ts:50` | yes — S5 posts `{}`, `{"title":""}`, `{"title":"   "}` and `{"title":42}`, all narrowed from `unknown` with no assertion |
+| `reply.code(n)` | `(statusCode) => FastifyReply` | `fastify/types/reply.d.ts:50` | yes — 201 (S4) and 400 (S5) |
+| `reply.send(payload)` | `(...args) => FastifyReply` | `fastify/types/reply.d.ts:54` | yes — S4, S5 |
+| `reply.statusCode` | `number` | `fastify/types/reply.d.ts:52` | yes — read inside the hook; S6 asserts 200, 201 and 400 from the log entry |
+| `reply.elapsedTime` | `number` | `fastify/types/reply.d.ts:46`, a getter at `fastify/lib/reply.js:88` | yes — S6 asserts `durationMs` is a finite number inside the `onResponse` hook, so the value is populated by the time that hook runs |
+
+Three behaviour facts this ticket established, beyond the members themselves:
+
+- **`onResponse` fires exactly once per request, including for a request the handler refused.** S6
+  asserts EXACTLY ONE entry for one injection, and asserts it again for a request that answered 400.
+  A hook registered on `onRequest` as well would satisfy "every request produces a log line" and fail
+  that assertion, which is the whole reason the count is in the spec.
+- **It also fires for a request whose handler REJECTED.** With a store whose `list()` rejects (S11),
+  `GET /tasks` answered 500 — Fastify's own error handling, which nobody configured — and the hook
+  still produced its entry, with `reply.statusCode` reading 500.
+- **A JSON body arrives parsed with no parser configured, and an array reply serialises to `[]`.**
+  S2 asserts the raw `payload` is the two characters `[]`, which pins both that there is no envelope
+  and that Fastify's default serialiser is what wrote it.
+
+### The second measured defect: `inject` does not load under Jest on the pinned Node
+
+The 2026-11-01 probe that verified `inject` ran under `tsx`. Under the runner of record it does not,
+and the reason is three packages down: `inject` loads `light-my-request@6.8.0`, which is CommonJS and
+`require`s `cookie@2.0.1`, which is ESM-only. Node 22 performs that require natively and Jest's own
+CJS loader refuses it. MEASURED 2026-11-02: 25 of 29 api cases died inside `app.inject` with
+`ERR_REQUIRE_ESM` before reaching any expectation. The cure in force is a one-package exception in
+`jest.config.mjs` (header fact 6), and the decision it defers — pinning Node 24.9+ instead — is
+[TD-0016](../tech-debt/TD-0016-inject-needs-a-transform-exception-or-a-newer-node.md).
+
+This is the second time a member of this digest behaved differently from its declaration, and in the
+same direction as `isLightMyRequest` below: **a type that checks says nothing about a module that
+loads.** Treat the tables above as cited-and-measured and everything under UNVERIFIED as neither.
+
 ## The factory
 
 `fastify/fastify.d.ts:307` is `export = fastify`, a CommonJS-style declaration with four overloads
@@ -154,11 +206,18 @@ tables above the same way — cited is not measured, and the measured ones are m
 
 - The chain form `app.inject().get('/')…` (`fastify/types/instance.d.ts:171`).
 - The callback form `inject(opts, cb)` (`fastify/types/instance.d.ts:169`).
-- Plugins and encapsulation: `register` (`fastify/types/instance.d.ts:181`), hooks, decorators, the
-  schema compiler, the type providers. None is imported, called or observed here; each is a `Qn` in
-  the spec that first needs it, never a call (rule 15).
-- Every `InjectOptions` field except `method` and `url`: `headers`, `query`, `payload`/`body`,
-  `cookies`, `path`, `simulate`, `remoteAddress`, `authority`, `payloadAsStream`.
+- Plugins and encapsulation: `register` (`fastify/types/instance.d.ts:181`), decorators, the schema
+  compiler, the type providers. None is imported, called or observed here; each is a `Qn` in the
+  spec that first needs it, never a call (rule 15). **Hooks are no longer on this list**: the
+  `onResponse` overload is used and measured above. Every OTHER hook still is — `onRequest`,
+  `preParsing`, `preValidation`, `preHandler`, `preSerialization`, `onSend`, `onError`, `onTimeout`,
+  `onRequestAbort` and the application hooks.
+- `setErrorHandler` and `setNotFoundHandler`. The 500 of S11 and the 404 measured below are
+  Fastify's own defaults; neither handler is installed, and a spec that wants a different shape for
+  either has to say so.
+- Every `InjectOptions` field except `method`, `url` and `payload` (an object, which light-my-request
+  serialises as JSON and which S4, S5 and S8 all rely on): `headers`, `query`, `cookies`, `path`,
+  `simulate`, `remoteAddress`, `authority`, `payloadAsStream`.
 - Every `LightMyRequestResponse` member except `statusCode`, `payload`, `json()`, `headers` and
   `raw.res` — and `isLightMyRequest`, which is verified ABSENT.
 - `listen()`, and the whole live-server route. It is advisory by rule (`.claude/agents/api.md:36`) and
