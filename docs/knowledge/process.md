@@ -159,8 +159,12 @@ Rule 12 in one table. Prose that describes behaviour is part of the behaviour's 
   for the rest.
 - Trailers, each **BEGINNING its own line** — a quoted, indented or mid-sentence copy is prose and
   declares nothing:
-  - `green: S<n>[,S<m>] via <jest-core|jest-api|jest-web|playwright-chromium> <path under .ci/runs>` —
-    the runner token is the one `deriveVerify` put in that S's `verify:`, minus the `tsc-noemit + `
+  - `green: S<n> via <jest-core|jest-api|jest-web|playwright-chromium> <path under .ci/runs>` —
+    the runner token is the one `deriveVerify` put in that S's `verify:`, minus the `tsc-noemit + `.
+    ONE assertion per line: `lib/trailers.mjs:88` matches `^(S[1-9]\d*)\s+via\s+` and no list, so a
+    comma form is reported MALFORMED and declares nothing. Measured on CHQ-002, 2026-11-02 — this
+    line had said `S<n>[,S<m>]` until then, and CHQ-001 never exercised it because it wrote one
+    line per S (`a770a93:45-51`).
   - `spec-approved: CHQ-<nnn> <name> <YYYY-MM-DD>` — it carries the spec id, and the id is matched
     against the one `--require-approved` was asked about
   - `spec-conflict: <test file> — <why the assertion was wrong>`

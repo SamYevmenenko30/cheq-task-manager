@@ -84,8 +84,12 @@ spec conflict: the tests are the contract, everything else is evidence.
    not green, not red. A case name read out of the JSON is not a key in the XML: `fullName` joins
    ancestors with a SPACE there and with `' > '` here, so match counts, never names, across channels.
 5. Commit per S, or per small group, with the trailer `ready.mjs` parses, exactly:
-   `green: S<n>[,S<m>] via <jest-core|jest-api|jest-web|playwright-chromium> <path under .ci/runs>`
-   e.g. `green: S1,S2 via jest-core .ci/runs/2026-11-02T09-14-02-331Z-chq-001/core.junit.xml`.
+   `green: S<n> via <jest-core|jest-api|jest-web|playwright-chromium> <path under .ci/runs>`
+   e.g. `green: S1 via jest-core .ci/runs/2026-11-02T09-14-02-331Z-chq-001/core.junit.xml`, and a
+   SECOND LINE for S2 — one assertion per trailer. The reader matches `^(S[1-9]\d*)\s+via\s+` and
+   no list (`tools/gates/lib/trailers.mjs:88`), so `green: S1,S2 via …` is reported MALFORMED by
+   `ready.mjs` and declares nothing. Measured on CHQ-002, 2026-11-02: this example had been the
+   comma form, and following it cost one amend.
    `.ci/` is gitignored (`.gitignore:10`), so the artifact lives on this machine only — `ready.mjs`
    prints `(artifact present)` or `(ARTIFACT MISSING)` beside each trailer, and the human judges.
 6. When behaviour you ship differs from any prose the branch already carries — an ADR, a TD entry, a
