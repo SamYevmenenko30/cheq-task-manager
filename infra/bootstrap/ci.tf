@@ -156,10 +156,30 @@ data "aws_iam_policy_document" "deploy" {
     actions   = ["iam:PassRole"]
     resources = [aws_iam_role.task_execution.arn]
 
+    # `StringEqualsIfExists`, AND BOTH ECS PRINCIPALS, because UpdateExpressGatewayService refused
+    # the classic form and the error cannot tell us why. MEASURED 2026-11-02, deploy role's own
+    # credentials, nothing else changed:
+    #
+    #   AccessDeniedException: User: arn:aws:sts::...:assumed-role/cheq-deploy/cheq-deploy-41469834457
+    #   is not authorized to perform: iam:PassRole on resource:
+    #   arn:aws:iam::004940046152:role/cheq-task-execution because no identity-based policy allows
+    #   the iam:PassRole action
+    #
+    # That is the message IAM returns when no statement APPLIES — which happens both when the key
+    # `iam:PassedToService` is absent (a `StringEquals` condition on an absent key never matches) and
+    # when it is present with a value the list does not contain. The two cases are indistinguishable
+    # from the outside, and Express Mode is new enough that neither is documented. The local creates
+    # ran as an administrator with `iam:PassRole` unconditioned, so they never exercised this.
+    #
+    # `...IfExists` covers the absent case and both principals cover the present one. Be clear about
+    # the cost: if the key is absent the condition is vacuous, and what still constrains this is the
+    # RESOURCE — exactly one role ARN, whose only policy is AmazonECSTaskExecutionRolePolicy. What
+    # the condition still buys when the key IS set is that the role cannot be handed to ec2, lambda
+    # or anything else outside ECS.
     condition {
-      test     = "StringEquals"
+      test     = "StringEqualsIfExists"
       variable = "iam:PassedToService"
-      values   = ["ecs-tasks.amazonaws.com"]
+      values   = ["ecs-tasks.amazonaws.com", "ecs.amazonaws.com"]
     }
   }
 
@@ -169,10 +189,12 @@ data "aws_iam_policy_document" "deploy" {
     actions   = ["iam:PassRole"]
     resources = [aws_iam_role.infrastructure.arn]
 
+    # Same reasoning as PassTaskExecutionRole above; this role's only policy is
+    # AmazonECSInfrastructureRoleforExpressGatewayServices.
     condition {
-      test     = "StringEquals"
+      test     = "StringEqualsIfExists"
       variable = "iam:PassedToService"
-      values   = ["ecs.amazonaws.com"]
+      values   = ["ecs-tasks.amazonaws.com", "ecs.amazonaws.com"]
     }
   }
 
