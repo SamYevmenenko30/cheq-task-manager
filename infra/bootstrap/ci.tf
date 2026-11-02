@@ -15,6 +15,11 @@ resource "aws_iam_openid_connect_provider" "github" {
   client_id_list = ["sts.amazonaws.com"]
 }
 
+locals {
+  # Empty means the repository does not use immutable subject claims, so the classic prefix applies.
+  github_subject_prefix = var.github_subject_prefix != "" ? var.github_subject_prefix : "repo:${var.github_repository}"
+}
+
 data "aws_iam_policy_document" "deploy_trust" {
   statement {
     effect  = "Allow"
@@ -35,10 +40,30 @@ data "aws_iam_policy_document" "deploy_trust" {
     # pull request from a fork — which runs in the base repository's context — assume this role and
     # deploy whatever it contains. Pinning the ref to `refs/heads/main` means only a commit that
     # already reached the default branch can reach AWS.
+    #
+    # THE PREFIX IS NOT `repo:<owner>/<name>` HERE, and assuming it was cost this project one failed
+    # pipeline run. This repository has GitHub's IMMUTABLE SUBJECT CLAIMS switched on, which appends
+    # the numeric owner id and repository id to each half of the prefix:
+    #
+    #   gh api repos/<owner>/<name>/actions/oidc/customization/sub
+    #   -> {"use_default":true,"use_immutable_subject":true,
+    #       "sub_claim_prefix":"repo:<owner>@<ownerId>/<name>@<repoId>"}
+    #
+    # so the claim GitHub signs is `<that prefix>:ref:refs/heads/main`, and a trust policy written
+    # against the classic form matches nothing. MEASURED 2026-11-02: with the classic prefix the
+    # `gates` job passed and `deploy` died in configure-aws-credentials with `Could not assume role
+    # with OIDC: Not authorized to perform sts:AssumeRoleWithWebIdentity` — an error that names
+    # neither the claim nor the mismatch, which is why the subject has to be read from GitHub rather
+    # than inferred.
+    #
+    # `github_subject_prefix` therefore carries the prefix verbatim, and defaults to the classic
+    # form for a repository that has the feature off. The ids are the point of the feature: they
+    # survive a rename, so this pin cannot be defeated by renaming the repository or the account
+    # into one somebody else has released.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
+      values   = ["${local.github_subject_prefix}:ref:refs/heads/main"]
     }
   }
 }
@@ -167,13 +192,35 @@ data "aws_iam_policy_document" "deploy" {
     actions = [
       "logs:CreateLogGroup",
       "logs:DeleteLogGroup",
-      "logs:DescribeLogGroups",
       "logs:PutRetentionPolicy",
       "logs:TagResource",
       "logs:UntagResource",
       "logs:ListTagsForResource",
     ]
     resources = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ecs/*"]
+  }
+
+  # `logs:DescribeLogGroups` CANNOT BE SCOPED, and scoping it is why the first pipeline run failed.
+  # It is a list operation: IAM evaluates it against `arn:aws:logs:<region>:<account>:log-group::log-stream:`
+  # — an ARN with no log-group name in it — so a statement that names `log-group:/aws/ecs/*` matches
+  # nothing and the call is refused. MEASURED 2026-11-02, with the deploy role's own credentials and
+  # nothing else changed:
+  #
+  #   Error: reading CloudWatch Logs Log Group (/aws/ecs/cheq-api): ... AccessDeniedException: User:
+  #   arn:aws:sts::004940046152:assumed-role/cheq-deploy/cheq-deploy-41466707997 is not authorized to
+  #   perform: logs:DescribeLogGroups on resource:
+  #   arn:aws:logs:eu-north-1:004940046152:log-group::log-stream: because no identity-based policy
+  #   allows the logs:DescribeLogGroups action
+  #
+  # Terraform calls it on every REFRESH of `aws_cloudwatch_log_group`, so this breaks a plan rather
+  # than only an apply. `*` is the narrowest resource this action accepts; what it grants is the
+  # ability to see that log groups exist and their names, not to read a single log event — reading
+  # events is `logs:GetLogEvents` and `logs:FilterLogEvents`, neither of which this role has.
+  statement {
+    sid       = "LogsDescribe"
+    effect    = "Allow"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
   }
 
   # Read-only, for the data sources that look up the default VPC and its subnets. Describe calls in

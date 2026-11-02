@@ -237,6 +237,23 @@ leaves untouched. An earlier revision of this README concluded that nothing able
 response could be created in this account; that was wrong, it generalised from four sampled regions,
 and the correction is in [docs/specs/CHQ-005.probe-hosting.md](docs/specs/CHQ-005.probe-hosting.md).
 
+**A fourth thing only a pipeline run could find: the OIDC subject is not what the docs imply.**
+This repository has GitHub's *immutable subject claims* enabled, so the `sub` claim it signs is
+`repo:<owner>@<ownerId>/<name>@<repoId>:ref:refs/heads/main` rather than
+`repo:<owner>/<name>:ref:refs/heads/main`. A trust policy written against the classic form matches
+nothing, and the failure says only `Could not assume role with OIDC: Not authorized to perform
+sts:AssumeRoleWithWebIdentity` — naming neither the claim nor the mismatch. The prefix has to be
+read from GitHub rather than inferred:
+
+```bash
+gh api repos/<owner>/<name>/actions/oidc/customization/sub --jq .sub_claim_prefix
+```
+
+and passed to the bootstrap stage as `-var="github_subject_prefix=<that value>"`. It defaults to the
+classic form, so a repository with the feature off needs nothing. The numeric ids are the point of
+the feature: they survive a rename, so the pin cannot be defeated by renaming the repository or the
+account into one somebody else has released.
+
 **Three things only an apply could find**, each now a comment beside the value it fixed rather than a
 line someone will later delete as redundant:
 

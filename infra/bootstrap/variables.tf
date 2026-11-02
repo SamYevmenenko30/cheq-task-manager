@@ -29,3 +29,9 @@ variable "state_bucket_name" {
   description = "The bucket holding the application root's state. A bucket name is globally unique, so it cannot be derived from the project name alone without colliding with somebody else's."
   type        = string
 }
+
+variable "github_subject_prefix" {
+  description = "The OIDC `sub` prefix GitHub signs, verbatim, WITHOUT the `:ref:...` suffix — read from `gh api repos/<owner>/<name>/actions/oidc/customization/sub` as `sub_claim_prefix`. A repository with immutable subject claims enabled sends `repo:<owner>@<ownerId>/<name>@<repoId>` rather than `repo:<owner>/<name>`, and a trust policy written against the classic form matches nothing. Empty falls back to the classic form."
+  type        = string
+  default     = ""
+}
