@@ -1037,6 +1037,79 @@ export const probes = [
     return null;
   }),
 
+  probe('L-orphans: a spec contract reached only by tests is the DESIGNED state; the same module one directory away is an orphan', async (ctx) => {
+    // MEASURED on CHQ-001, 2026-11-02: this light refused the test-phase commit, and the cure it
+    // offered — "move it under the test directory" — would have put the agreed shape where the
+    // production code may not import it. The exemption is by PATH and by a test actually reaching
+    // the file; the residual blind spot (a contract still unreached after the implementation lands)
+    // is TD-0014, which the note names.
+    const skip = needTsc(ctx);
+    if (skip !== null) return skip;
+    const fx = workspace('orphans-contract', { resolve: true });
+    const contract = 'packages/core/src/contracts/CHQ-001/task.ts';
+    fx.r.write(contract, 'export interface Task { readonly id: string }\n');
+    fx.r.write(
+      'packages/core/test/CHQ-001/S1_shape.test.ts',
+      "import { it, expect } from '@jest/globals';\nimport type { Task } from '../../src/contracts/CHQ-001/task.ts';\nit('S1_shape: the shape is fixed', () => { const t: Task = { id: 'a' }; expect(t.id).toBe('a'); });\n",
+    );
+    fx.r.commit('test(CHQ-001): the contract and the test that reaches it');
+    const exempt = await light(fx, 'L-orphans');
+    assertLight(exempt, 'pass', /a spec contract reached by the tests and not yet by an entry point/, 'L-orphans with a spec contract in the state the method prescribes');
+    alsoMatches(exempt, 'L-orphans tolerating a spec contract', /TD-0014/);
+
+    // One directory away it is an ordinary helper on the production side, and still refused.
+    fx.r.write('packages/core/src/contracts/helper.ts', 'export const HELPER = 1;\n');
+    fx.r.write(
+      'packages/core/test/CHQ-001/S2_helper.test.ts',
+      "import { it, expect } from '@jest/globals';\nimport { HELPER } from '../../src/contracts/helper.ts';\nit('S2_helper: reaches it', () => { expect(HELPER).toBe(1); });\n",
+    );
+    fx.r.commit('chore: a helper that is not a spec contract');
+    const notExempt = await light(fx, 'L-orphans');
+    assertLight(notExempt, 'fail', /packages\/core\/src\/contracts\/helper\.ts:1: no entry point of packages\/core reaches this module/, 'L-orphans with a module outside the declared contracts shape');
+    fx.r.cleanup();
+    return null;
+  }),
+
+  probe('L-lint: the findings a missing implementation costs a spec test are cannot-verify with the tolerated prefix; any other finding is a plain fail', async (ctx) => {
+    // MEASURED on CHQ-001, 2026-11-02. A spec test must reach a symbol nobody has written yet, and
+    // HOW it reaches it is not free: a named import of an absent export is an ESM link error, so the
+    // file never loads and the artefact carries no <testcase> at all. Through the namespace the file
+    // loads and every case gets a row — at the cost of exactly two findings, both true, both gone
+    // with no edit to the test once the implementation lands (measured: zero findings then).
+    const skip = needTsc(ctx);
+    if (skip !== null) return skip;
+    const fx = workspace('lint-pending', { resolve: true });
+    fx.r.write(
+      'packages/core/test/CHQ-001/S1_pending.test.ts',
+      "import { it, expect } from '@jest/globals';\n" +
+        "import * as core from '../../src/index.ts';\n" +
+        'type Create = (t: string) => Promise<string>;\n' +
+        'const create: Create = core.createTask;\n' +
+        "it('S1_pending: the symbol is not written yet', async () => { await expect(create('a')).resolves.toBe('a'); });\n",
+    );
+    fx.r.commit('test(CHQ-001): a spec test reaching an unwritten symbol');
+    const pending = await light(fx, 'L-lint');
+    assertLight(pending, 'cannot-verify', /pending implementation: every finding is a missing implementation reached from a placed spec test/, 'L-lint over a spec test whose only findings are the absent implementation');
+    alsoMatches(pending, 'L-lint on a pending implementation', /every strict run fails on this tree; only the hook prints it as a warning/);
+
+    // An `any` the test leaked for its OWN reasons must not ride in behind a missing function.
+    fx.r.write(
+      'packages/core/test/CHQ-001/S2_leak.test.ts',
+      "import { it, expect } from '@jest/globals';\n" +
+        'const parsed: unknown = JSON.parse(\'{"a":1}\');\n' +
+        "const leaked = (parsed as { a: number }).a as unknown as string & { nope?: never };\n" +
+        "it('S2_leak: an unrelated finding', () => { expect(typeof leaked).toBe('number'); });\n",
+    );
+    fx.r.commit('test(CHQ-001): a second test with a finding of its own');
+    const mixed = await light(fx, 'L-lint');
+    assert(
+      mixed.status !== 'cannot-verify' || !String(mixed.detail).startsWith('pending implementation:'),
+      `a finding that is NOT the pending-implementation shape must not be tolerated; L-lint said ${mixed.status}: ${String(mixed.detail).slice(0, 220)}`,
+    );
+    fx.r.cleanup();
+    return null;
+  }),
+
   probe('L-orphans: a test file no Jest project collects ⇒ fail (a test nobody runs reads exactly like a test that passes)', async (ctx) => {
     const skip = needTsc(ctx);
     if (skip !== null) return skip;

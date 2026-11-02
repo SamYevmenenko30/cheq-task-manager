@@ -166,7 +166,15 @@ export const STANDING_LIGHTS = [
   { id: 'L-deps', severity: 'hard', fast: true, title: 'no dependency without a `package:` line and a lockfile change; vendor digest present' },
   { id: 'L-orphans', severity: 'hard', fast: true, title: 'no tracked source outside its project; every test matched by exactly one jest project' },
   { id: 'L-visible', severity: 'hard', fast: true, title: 'every blind spot of every walk is declared' },
-  { id: 'L-generated', severity: 'hard', fast: true, title: 'a generated file is re-generated and diffed, never hand-edited' },
+  // NOT on the fast path, and that is about HORIZONS rather than cost. This light's subject is what
+  // the COMMITTED file says: it reads `git show HEAD:<path>` on purpose and documents why — a
+  // work-tree read would pass on a fresh render nobody committed, leaving history with a stale
+  // projection. The hook runs BEFORE the commit, so HEAD is the PREVIOUS one, and every commit that
+  // legitimately regenerates a file therefore looks stale to it. Measured 2026-11-02 on CHQ-001's
+  // test-phase commit, which regenerates docs/digests/core-exports.md: the hook refused it, and the
+  // refusal was about a commit that did not exist yet. It stays `hard` in `--all`, which is the check
+  // of record and runs on a clean tree where HEAD and the work tree are the same bytes.
+  { id: 'L-generated', severity: 'hard', fast: false, title: 'a generated file is re-generated and diffed, never hand-edited' },
   { id: 'L-stubkit', severity: 'hard', fast: true, title: 'a stub renders no invented data: path, STUB marker, stubkit only' },
   { id: 'L-homes', severity: 'soft', fast: false, title: 'an edit outside the homes a spec named is REPORTED' },
   { id: 'L-env-parity', severity: 'hard', fast: false, title: 'the core set under node and under jsdom agree case by case' },

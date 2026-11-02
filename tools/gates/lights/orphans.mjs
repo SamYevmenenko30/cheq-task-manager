@@ -197,6 +197,13 @@ const ENTRY_CANDIDATES = Object.freeze(['src/main.tsx', 'src/main.ts', 'src/inde
 const TEST_SUFFIXES = Object.freeze([...new Set(PROJECT_NAMES.flatMap((p) => (PROJECTS[p].runner === 'jest' ? PROJECTS[p].extensions : [])))]);
 
 /** A source file a type project is expected to have read. */
+/**
+ * `<pkg>/src/contracts/CHQ-nnn/<file>` — the one place a spec's `contracts: allowed` front matter
+ * lets the TEST phase put types on the production side of a package. The id is matched in full so
+ * a directory merely called `contracts` is not covered.
+ */
+const SPEC_CONTRACT_RE = /(?:^|\/)src\/contracts\/CHQ-\d{3}\/[^/]+$/;
+
 const SOURCE_SUFFIXES = Object.freeze(['.ts', '.tsx']);
 
 const sortStr = (a, b) => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
@@ -470,6 +477,25 @@ export function run({ root = process.cwd(), premises = null } = {}) {
 
     for (const f of mine) {
       if (fromEntries.reached.has(f)) continue;
+      // A SPEC CONTRACT IS REACHED BY THE TESTS FIRST, BY DESIGN. A spec whose front matter says
+      // `contracts: allowed` lets the TEST phase place types under `<pkg>/src/contracts/CHQ-nnn/`
+      // — the shape fixed by the spec, with no function bodies — and for the whole of that phase
+      // only the spec tests import them, because the implementation they belong to does not exist
+      // yet. `implement-to-green` is what makes an entry point reach them. So between those two
+      // phases this is the designed state and not a misplaced helper, and the cure the message
+      // below offers would be actively wrong: moving a contract under the test directory would
+      // put the agreed shape where the production code may not import it.
+      //
+      // Reported rather than passed over in silence — this light says what it is tolerating, and
+      // it tolerates the PATH only. What it cannot see is a contract that is still unreached after
+      // the implementation lands: nothing here knows that the phase is over (TD-0014).
+      if (SPEC_CONTRACT_RE.test(f) && fromTests.reached.has(f)) {
+        notes.push(
+          `${f}: a spec contract reached by the tests and not yet by an entry point — the designed state while \`contracts: allowed\` is in force and the implementation is pending; ` +
+            'an entry point reaches it when implement-to-green lands (TD-0014: nothing here notices if it never does)',
+        );
+        continue;
+      }
       if (fromTests.reached.has(f))
         problems.push(
           `${f}:1: no entry point of ${pkg.rel} reaches this module (entries: ${entries.join(', ')}) and a test imports it — a helper on the production side of the package. ` +

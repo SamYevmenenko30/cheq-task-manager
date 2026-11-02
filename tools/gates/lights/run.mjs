@@ -122,13 +122,15 @@
  * The test phase commits red spec tests whose types the implementation has not
  * written yet, and that is the normal state between two phases.
  *
- * It applies to `L-tsc` AND NOTHING ELSE. This file does not decide the world
- * state behind it: `L-tsc` establishes that condition with `classifyPending`
- * from `../lib/tsc-log.mjs` (core compiles, every error is a missing symbol in a
- * placed spec test) and SAYS SO by prefixing its detail with
- * `PENDING_IMPLEMENTATION_PREFIX`. This file recognises exactly that prefix from
- * exactly that id. The flag alone changes nothing, which is what keeps the
- * tolerance from becoming a switch.
+ * It applies to `L-tsc` and `L-lint`, and to nothing else. This file does not
+ * decide the world state behind either: each light establishes that condition
+ * for ITSELF and SAYS SO by prefixing its detail with
+ * `PENDING_IMPLEMENTATION_PREFIX` — `L-tsc` with `classifyPending` from
+ * `../lib/tsc-log.mjs` (core compiles, every error is a missing symbol in a
+ * placed spec test), `L-lint` with the same question asked of its own findings
+ * (every one of them a tolerated rule inside a placed spec test). This file
+ * recognises exactly that prefix from exactly those two ids. The flag alone
+ * changes nothing, which is what keeps the tolerance from becoming a switch.
  *
  * A light downstream of `L-tsc` inherits the tolerance only by DECLARING
  * `dependsOn: ['L-tsc']`. That declaration also orders execution — the
@@ -224,7 +226,7 @@ if (flag('--help') || flag('-h')) {
       '                  the previous commit, which is what the hook judges — or the empty tree at a root',
       '  --since <sha>   the range starts at this commit instead (--since HEAD is refused: an empty range)',
       '  --allow a,b     packages a spec\'s wave allowed; passed through to every light',
-      '  --pending-implementation-tolerance   hook path only; recognised on L-tsc alone',
+      '  --pending-implementation-tolerance   hook path only; recognised on L-tsc and L-lint',
       '',
       'Exit 1 when a hard light is not pass — CANNOT VERIFY included.',
     ].join('\n'),
@@ -529,7 +531,12 @@ for (const id of order) {
   // The ONE tolerance. Recognised from the prefix L-tsc writes, never from the
   // flag alone, and inherited only through a declared dependsOn.
   if (tolerate && row.status === 'cannot-verify') {
-    if (id === 'L-tsc' && row.detail.startsWith(PENDING_IMPLEMENTATION_PREFIX)) tolerated.add(id);
+    // L-lint joined L-tsc on 2026-11-02, for the same reason and under the same terms: a spec test
+    // must reach a symbol nobody has written yet, and the two findings that costs are true, name
+    // the absence precisely, and vanish with no edit to the test once it lands (measured). Each
+    // light decides for ITSELF whether its own findings are that shape and says so with the
+    // prefix; this line only decides which ids may say it at all.
+    if ((id === 'L-tsc' || id === 'L-lint') && row.detail.startsWith(PENDING_IMPLEMENTATION_PREFIX)) tolerated.add(id);
     else if (light.dependsOn.some((d) => tolerated.has(d))) tolerated.add(id);
   }
 }

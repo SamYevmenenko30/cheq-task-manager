@@ -109,9 +109,37 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { readOxlint } from '../lib/oxlint-json.mjs';
+import { PENDING_IMPLEMENTATION_PREFIX } from '../lib/spec-parse.mjs';
+import { isSpecTest } from '../lib/test-file-patterns.mjs';
 import { readVisible, requirePremise, readPremises, scanSource, sh, walk } from './_shared.mjs';
 import { cite, readJsoncFile, LIGHT_ARTIFACT_DIR } from './tsc.mjs';
 import { globToRegex } from './visible.mjs';
+
+/**
+ * The rule ids a MISSING IMPLEMENTATION makes fire inside a spec test, and nothing else does.
+ *
+ * MEASURED 2026-11-02 on CHQ-001's seven spec tests, which is what put this set here. A spec test
+ * has to reach a symbol nobody has written yet, and how it reaches it is not free: a NAMED import
+ * of an absent export is an ESM link error, so the file never loads and the artefact carries no
+ * `<testcase>` for any case at all — red-check then reads the whole file as one weak crash-red
+ * instead of twenty-nine per-case rows. Reaching it through the NAMESPACE keeps the file loading,
+ * and costs exactly these two findings:
+ *
+ *   import(namespace)                  the property is genuinely not on the namespace yet
+ *   typescript(no-unsafe-assignment)   so its type is an error type, and assigning it is unsafe
+ *
+ * Both are TRUE, both name the absent implementation precisely, and both VANISH with no edit to
+ * the test when it lands — measured by adding the implementation and re-running: zero findings in
+ * the spec tests. That self-healing is not a nicety, it is required: a spec test is read-only for
+ * `implement-to-green`, so a construct that needed editing afterwards would be illegal.
+ *
+ * So they are the same shape as L-tsc's missing-symbol diagnostics, and they get the same
+ * treatment and no more: the HOOK prints them as a warning, every strict run still fails, and the
+ * tolerance holds only when EVERY finding is one of these ids inside a placed spec test. One
+ * finding anywhere else, or one other rule, and the whole tree is judged strictly again — an
+ * `any` that a test leaked for its own reasons must not ride in behind a missing function.
+ */
+const PENDING_IMPLEMENTATION_RULES = Object.freeze(['import(namespace)', 'typescript(no-unsafe-assignment)']);
 
 export const id = 'L-lint';
 export const severity = 'hard';
@@ -360,6 +388,8 @@ export function run({ root = process.cwd(), premises = null } = {}) {
   const problems = [];
   const unverifiable = [];
   const notes = [];
+  /** Every diagnostic the lane itself reported, for the pending-implementation test below. */
+  const lintFindings = [];
 
   const pin = rulePin(root);
   problems.push(...pin.problems);
@@ -406,22 +436,54 @@ export function run({ root = process.cwd(), premises = null } = {}) {
         if (written) {
           const read = readOxlint(artifactPath);
           const stderrNote = r.stderr.trim() === '' ? '' : ` · stderr: ${r.stderr.split('\n')[0] ?? ''}`;
+          // ONE chain, on purpose. Splitting it so the findings could be captured sent a GREEN
+          // report down the final `else` and into `unverifiable` — a clean lane reported as a
+          // missing premise. Caught by the L-lint REVERSE probe, which is what that probe is for.
           if (read.verdict === 'green') notes.push(`${ARTIFACT}: ${read.reason} · ${argvNote}${stderrNote}`);
-          else if (read.verdict === 'red')
+          else if (read.verdict === 'red') {
+            lintFindings.push(...read.diagnostics);
             problems.push(
               `${ARTIFACT}: ${read.reason} — ${read.diagnostics
                 .slice(0, 6)
                 .map((d) => `${d.filename}:${String(d.line ?? '?')} ${d.code} ${d.message}`)
                 .join(' | ')}${read.diagnostics.length > 6 ? ` (+${String(read.diagnostics.length - 6)} more)` : ''} · ${argvNote}`,
             );
-          else unverifiable.push(`${ARTIFACT}: ${read.reason} · ${argvNote}${stderrNote}`);
+          } else unverifiable.push(`${ARTIFACT}: ${read.reason} · ${argvNote}${stderrNote}`);
         }
       }
     }
   }
 
   const summary = [...new Set(notes)].join(' · ');
-  if (problems.length) return { id, severity, status: 'fail', detail: `${String(problems.length)} problem(s): ${problems.join(' || ')} · ${summary}` };
+  if (problems.length) {
+    // Is EVERY finding a pending implementation inside a spec test? `lintFindings` is empty unless
+    // the lane actually produced a report, so a problem from the rule-set or suppression checks —
+    // which never populates it — leaves this false and the detail unprefixed.
+    const pending =
+      lintFindings.length > 0 &&
+      problems.length === 1 &&
+      // The reader already hands back a repo-relative `filename` (measured: oxlint's own
+      // `labels[].span.file` is repo-relative), which is the spelling `isSpecTest` classifies.
+      lintFindings.every((d) => PENDING_IMPLEMENTATION_RULES.includes(d.code) && isSpecTest(d.filename));
+    if (pending) {
+      const where = [...new Set(lintFindings.map((d) => d.filename))];
+      return {
+        id,
+        severity,
+        // `cannot-verify`, exactly as L-tsc reports the same shape, and for the same reason: the
+        // lane ran, but what it found is the absent implementation rather than anything about the
+        // code's quality, so there is no lint verdict to be had yet. It is also the status the
+        // tolerance in lights/run.mjs is keyed to — a `fail` would never reach it.
+        status: 'cannot-verify',
+        detail:
+          `${PENDING_IMPLEMENTATION_PREFIX} every finding is a missing implementation reached from a placed spec test — ` +
+          `${String(lintFindings.length)} finding(s) of ${PENDING_IMPLEMENTATION_RULES.join(' / ')} across ${String(where.length)} spec test(s): ` +
+          `${where.slice(0, 4).join(', ')}${where.length > 4 ? ` (+${String(where.length - 4)} more)` : ''} · ` +
+          `${problems.join(' || ')} · ${summary} · every strict run fails on this tree; only the hook prints it as a warning`,
+      };
+    }
+    return { id, severity, status: 'fail', detail: `${String(problems.length)} problem(s): ${problems.join(' || ')} · ${summary}` };
+  }
   if (unverifiable.length)
     return { id, severity, status: 'cannot-verify', detail: `${String(unverifiable.length)} premise(s) missing: ${unverifiable.join(' || ')} · ${summary} · a lane that did not run is not a lane that passed` };
   return { id, severity, status: 'pass', detail: `the lint lane is green and the rule set is intact · ${summary}` };

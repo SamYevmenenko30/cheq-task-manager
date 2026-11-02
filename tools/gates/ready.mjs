@@ -221,8 +221,9 @@ const READY_DIR = '.ci/ready';
  * (`.githooks/pre-commit:18`) and this file accepts it there as a no-op, so the
  * hook's own line reads honestly; spelled WITHOUT `--quick` it is reported as
  * IGNORED. What the tolerance can do is bounded on the other side as well: the
- * lights pack recognises it on `L-tsc` alone and only when L-tsc itself writes
- * the `pending implementation` prefix, so the flag by itself changes nothing.
+ * lights pack recognises it on `L-tsc` and `L-lint` alone, and only when the
+ * light itself writes the `pending implementation` prefix, so the flag by itself
+ * changes nothing.
  */
 export const toleranceArgv = (quick) => (quick ? ['--pending-implementation-tolerance'] : []);
 

@@ -628,6 +628,24 @@ export const WORKSPACE_ROOT_FILES = Object.freeze([
 export const WORKSPACE_TREES = Object.freeze(['packages', 'apps', 'e2e']);
 
 /**
+ * PER-TICKET WORK IN FLIGHT, which a baseline fixture must not inherit.
+ *
+ * `writeWorkspace` copies what `git ls-files` lists, and that reads the INDEX — so a spec test the
+ * test phase has staged is in it. Ten probes assert that a copy of this repository is GREEN: that a
+ * fixture reaches the real toolchain, that L-tsc reads the untouched skeleton as pass, that the
+ * REVERSE case of L-core-purity, L-lint, L-testshape and L-orphans passes. All ten failed on
+ * 2026-11-02 while CHQ-001's seven red spec tests sat staged in the tree — measured, and every
+ * failure named a TS2339 for a symbol nobody has written yet.
+ *
+ * That is the phase, not a defect, and it would recur on every ticket: a probe about the HARNESS
+ * cannot depend on which phase the product happens to be in. So the baseline excludes the two
+ * places per-ticket work in flight lives — `<pkg>/test/CHQ-nnn/` and `<pkg>/src/contracts/CHQ-nnn/`
+ * — and a probe that wants a spec test writes its own, which is what every probe here already does.
+ * The skeleton fixtures under `test/skeleton/` are NOT excluded: they are the green baseline.
+ */
+const IN_FLIGHT_RE = /(?:^|\/)(?:test|src\/contracts)\/CHQ-\d{3}\//;
+
+/**
  * Fill a scratch repo with THIS repository's skeleton.
  *
  * It copies rather than writes: `git ls-files` over `WORKSPACE_TREES` plus
@@ -647,7 +665,8 @@ export function writeWorkspace(r, { lock = true, commit = 'chore: scaffold', tre
   const missing = [];
   const listed = lsFiles([...trees], { cwd: REPO_ROOT });
   assert(listed.ok, `writeWorkspace: git ls-files failed in ${REPO_ROOT}: ${listed.reason ?? 'no reason given'}`);
-  const wanted = [...listed.files, ...WORKSPACE_ROOT_FILES, ...(lock ? ['pnpm-lock.yaml'] : [])];
+  const baseline = listed.files.filter((rel) => !IN_FLIGHT_RE.test(rel));
+  const wanted = [...baseline, ...WORKSPACE_ROOT_FILES, ...(lock ? ['pnpm-lock.yaml'] : [])];
   for (const rel of wanted) {
     const abs = join(REPO_ROOT, rel);
     if (!existsSync(abs)) {
@@ -662,7 +681,7 @@ export function writeWorkspace(r, { lock = true, commit = 'chore: scaffold', tre
     `writeWorkspace: ${missing.length} declared file(s) are missing from ${REPO_ROOT} and the fixture would differ from the repository: ${missing.join(', ')}`,
   );
   const head = commit === false ? null : (r.commit(commit), r.head());
-  return { files, missing, head };
+  return { files, missing, head, inFlightExcluded: listed.files.filter((rel) => IN_FLIGHT_RE.test(rel)) };
 }
 
 /** `tools/gates` as the subject imports it. `probes/` and `fixtures/` stay out: the

@@ -75,8 +75,10 @@
  *   it and nothing else: execution order (`run.mjs` topologically sorts, so a
  *   dependency has already reported when the dependent runs) and tolerance
  *   propagation (`--pending-implementation-tolerance` is recognised on `L-tsc`
- *   only; a light that declares `dependsOn: ['L-tsc']` has its own cannot-verify
- *   shown as the same warning instead of blocking). In the Resonance original
+ *   and, since 2026-11-02, on `L-lint`, each deciding for ITSELF whether its own
+ *   findings are the pending-implementation shape and saying so with the prefix;
+ *   a light that declares `dependsOn: ['L-tsc']` has its own cannot-verify shown
+ *   as the same warning instead of blocking). In the Resonance original
  *   that relationship was implicit in a literal's order — `csc` first,
  *   `monoParity` last — which is a fact nobody can read off the code.
  *
