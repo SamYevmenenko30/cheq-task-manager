@@ -214,11 +214,30 @@ Measured: the gates job is green in CI at **49 s** total, with `ready` itself at
 
 ### What is blocking the live URL
 
-The AWS account available for this exercise is a member of an AWS Organization whose service
-control policies return an **explicit deny** for `ecs`, `ecr`, `ec2`, `cloudformation`, `lambda` and
-more. An SCP overrides IAM, so no permission grant can work around it, and the policies can only be
-detached from the organization's management account. Until that is resolved there is nothing to
-apply against.
+An AWS account whose organization permits a create. Not a line of this repository, and measured
+rather than assumed.
+
+The account available for this exercise, `004940046152`, is a MEMBER of an AWS Organization
+(`o-p4nytzyapy`, management account `585688243989`) with two service control policies denying along
+two different axes: one denies whole services and every region except `us-east-1`, the other denies
+individual write actions inside the services the first one leaves alone. Probed on 2026-11-02, with
+valid parameters on free and immediately deleted resources:
+
+| create | verdict |
+|---|---|
+| `iam:CreateRole`, `logs:CreateLogGroup`, `acm:RequestCertificate` | allowed |
+| `s3:CreateBucket` | **denied** |
+| `lightsail:CreateContainerService`, `lightsail:CreateInstances` | **denied** |
+| `ecs`, `ecr`, `ec2`, `elbv2`, `lambda`, `apigateway`, `apprunner`, `cloudformation`, … | **denied** (whole service) |
+
+So **nothing that can serve an HTTP response can be created**: no bucket, therefore no SPA and no
+state backend; no container service and no VM, therefore no compute. What is permitted — a role, a
+log group, a certificate — is scaffolding with nothing to scaffold.
+
+An SCP overrides IAM, and it restrains a member account's own root user, so no grant made inside
+this account can lift it; only the management account can, and that account is not mine. The full
+record, including a probe technique that failed and the control case that caught it, is in
+[docs/specs/CHQ-005.probe-hosting.md](docs/specs/CHQ-005.probe-hosting.md).
 
 What that leaves proven, and what it does not: `terraform fmt`, `init` and `validate` pass on both
 stages against the real provider schema (`hashicorp/aws 6.71.0`), so every argument name, type and
