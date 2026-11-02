@@ -1,0 +1,30 @@
+# What never belongs in the build context. Two reasons, and the second is the one that bites:
+# a smaller context is faster, and a context that carries host-built artefacts can make the image
+# differ from a clean checkout without anyone noticing.
+
+# Host-built and host-specific
+node_modules
+**/node_modules
+dist
+coverage
+.ci
+
+# Not the application
+.git
+.github
+docs
+tools
+e2e
+scratchpad
+*.md
+!apps/api/README.md
+
+# Editor and OS noise
+.DS_Store
+.idea
+.vscode
+
+# Never, under any circumstances
+.env
+.env.*
+!.env.example

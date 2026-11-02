@@ -5,8 +5,8 @@
 **GENERATED — do not edit (node tools/gates/digest.mjs --fix)**
 
 - format: `1` — bumped whenever the rendering changes, which makes every projection stale until one `--fix`
-- sources sha256: `2d52b141145c704947bdeabdae16de7520fbdcc963dabf64b102e51f3b341e63`
-- derived from: `apps/api/src/` plus `apps/api/package.json` — 5 input files, each one listed at the end
+- sources sha256: `85d96ecf10cb82ae89040645c290d90fe44d2cbb54ad8135d0a39fd7f25901c1`
+- derived from: `apps/api/src/` plus `apps/api/package.json` — 6 input files, each one listed at the end
 
 Every route of @cheq/api: method, path, schema names, handler, file:line — the HTTP surface, which is otherwise spread across registration calls nobody can diff.
 
@@ -29,6 +29,7 @@ The third column is what the scan found in the file, so a file that contributes 
 | `apps/api/src/in-memory-task-store.ts` | `8a842ec1969f9fce55e07d55de145733ee74875fd0b440166a1839c9f8b8fb91` | 0 routes, 0 prefixes |
 | `apps/api/src/index.ts` | `37e4c1200aafc36cda1bfa96ac905ce71a87e268e1b0936f39850b83c554efa5` | 0 routes, 0 prefixes |
 | `apps/api/src/request-log.ts` | `0f9271b27d7ea97730e0077db9c0a6463a0d74707d2a2f86c8d0f3361a81c1ea` | 0 routes, 0 prefixes |
+| `apps/api/src/server.ts` | `ed1cba48f62e1b4278b4121d3bddc493da49ffe65b3cf7dfd19b4110a5a30038` | 0 routes, 0 prefixes |
 
 The `sources sha256` in the header is the sha256 of this table as DATA: one `<path> <sha256>` line per row, in the order shown (sorted by code point), each ending in a newline, concatenated and hashed. The key is CONTENT, never mtime — `git checkout` and a restored cache rewrite mtime to "now" and change nothing here.
 
