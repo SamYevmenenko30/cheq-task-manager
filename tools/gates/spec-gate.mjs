@@ -65,6 +65,10 @@
  *      that names anything is checked in full either way: it exists at HEAD,
  *      classifies as a spec test of that S's kind, sits under
  *      `<test dir>/CHQ-nnn/`, and no two S share one file.
+ *      ONE EXEMPTION, and only this one: a live `kind: e2e` S with no e2e test
+ *      of its own, while `browser_probe` is unobserved, is a WARNING rather than
+ *      a blocker — rule 13's premise, read once and shared, so the two rules
+ *      cannot disagree about the lane. TD-0001.
  *   12 assertion ids are APPEND-ONLY from approval, measured against the text AT
  *      THE APPROVAL COMMIT — the only text the human signed. A live `Sn` that
  *      vanished ⇒ FAIL (withdraw with `~~Sn~~`), a live `Sn` whose text changed
@@ -73,7 +77,9 @@
  *      be and which never sees the approval at all, since that is an empty commit.
  *   13 one WARNING when a touched spec carries a live `kind: e2e` S while the
  *      browser premise is not observed. This is the ONE place machine state is
- *      reported by this gate, and it is never compared with a spec.
+ *      reported by this gate, and it is never compared with a spec. The premise
+ *      is computed ONCE per run and handed to rule 11 as well: two reads of one
+ *      record are two answers waiting to diverge.
  *   14 `--require-approved CHQ-nnn` is ADDITIVE: the structural rules run FIRST
  *      and their findings are kept, then the approval is judged. The id captured
  *      from the trailer is matched against the id ASKED FOR.
@@ -762,7 +768,7 @@ function checkSpec({ id, spec, report, ctx }) {
 }
 
 /** Rules 11 and 12 — both triggered by the approval, not by a section. */
-function checkApproved({ id, spec, live, approval, report, ctx }) {
+function checkApproved({ id, spec, live, approval, report, ctx, browser }) {
   const at = (line) => `${spec.path ?? specPath(id)}:${line ?? 1}`;
   const approvedAtAll = Boolean(approval.approved);
   const fresh = approval.verdict === 'green';
@@ -783,14 +789,44 @@ function checkApproved({ id, spec, live, approval, report, ctx }) {
   // Before that, an approved spec with `check: TODO` is a spec awaiting its tests,
   // which is reported and does not block. The rest of rule 11 is unchanged: a
   // `check:` that names anything is checked in full either way.
-  const phaseStarted = fresh ? lsFiles([], { cwd: ctx.root }).files.some((f) => isTestFile(f) && f.includes(`/${id}/`)) : false;
+  // ONE listing, two questions: did the phase start, and did it place an e2e
+  // test of its own. The second is what keeps the exemption below from covering
+  // an author who wrote the e2e test and forgot to point `check:` at it.
+  const tracked = fresh ? lsFiles([], { cwd: ctx.root }).files.filter((f) => f.includes(`/${id}/`)) : [];
+  const phaseStarted = tracked.some((f) => isTestFile(f));
+  const e2eWritten = tracked.some((f) => classify(f).kind === 'e2e');
   if (fresh) {
     const byFile = new Map();
     for (const a of live) {
       const value = a.check;
       if (value === null) continue; // the library already reported check-missing
       if (/^todo$/i.test(value)) {
-        if (phaseStarted)
+        // THE ONE EXEMPTION, narrow on purpose: an assertion whose runner cannot
+        // be made to run at all. Rule 13 already reports that the browser lane is
+        // unobserved and forbids every e2e `green:`; without this, rule 11 would
+        // demand a `check:` path for precisely the assertion the test phase is
+        // forbidden to write a test for — and the only legal values are `TODO` or
+        // a path that classifies as a spec test AND exists at HEAD, so the spec
+        // would be UNFIXABLE rather than merely blocked.
+        //
+        // MEASURED on CHQ-003, 2026-11-02: eleven live S, the ten `kind: web`
+        // ones with their files committed, and S11 `kind: e2e` with no test
+        // because `BROWSER_PROBE=absent`. That left one blocker nobody could
+        // clear without either writing a test for a runner this machine has never
+        // observed, or withdrawing an assertion the spec argues for in its own
+        // prose. Neither is a thing a gate may force.
+        //
+        // It expires by itself, which is why it is not a waiver: the moment
+        // `browser_probe` is observed, or the phase places an e2e test of its
+        // own, the ordinary blocker below applies again. Probed both ways.
+        if (phaseStarted && a.kind === 'e2e' && !e2eWritten && browser.verdict !== 'pass')
+          report.warn(
+            at(a.line),
+            `${a.id}: \`check: TODO\` on a live \`kind: e2e\` assertion whose lane cannot run (${browser.reason}) — the test phase may not ` +
+              `write a test for a runner this machine has never observed, so rule 11 exempts this one assertion (TD-0001). It becomes a ` +
+              `blocker the moment \`browser_probe\` is observed, or the moment an e2e test for ${id} exists at HEAD`,
+          );
+        else if (phaseStarted)
           report.fail(
             at(a.line),
             `${a.id}: \`check: TODO\` while a spec test for ${id} already exists at HEAD — the test phase has started, so every live assertion names the file that holds its cases`,
@@ -998,13 +1034,14 @@ export function run(argv = []) {
 
     const { live, openQuestions } = checkSpec({ id, spec, report, ctx });
     const approval = approvalOf(root, id, history);
-    checkApproved({ id, spec, live, approval, report, ctx });
+    // Read once, used by rule 11 (the e2e exemption) and rule 13 (the report).
+    const browser = premise(probe, 'browser_probe');
+    checkApproved({ id, spec, live, approval, report, ctx, browser });
 
     // --- rule 13: the ONE line of machine state this gate reports. It is never
     // compared with the spec: `verify:` carries no probe state (that is why the
     // retired `(pending-calibration)` suffix exists as a warning in history).
     if (live.some((a) => a.kind === 'e2e')) {
-      const browser = premise(probe, 'browser_probe');
       if (browser.verdict !== 'pass')
         report.warn(
           path,

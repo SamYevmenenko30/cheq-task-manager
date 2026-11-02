@@ -91,6 +91,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:f
 import { join } from 'node:path';
 
 import { EMPTY_TREE } from '../lib/git.mjs';
+import { PROBE_PATH, lockKey } from '../lib/probe.mjs';
 import { PENDING_IMPLEMENTATION_PREFIX, STANDING_LIGHTS, parseSpec } from '../lib/spec-parse.mjs';
 import { codeOnly } from '../lib/test-cases.mjs';
 import { byCodepoint } from '../lights/_shared.mjs';
@@ -231,12 +232,62 @@ const s1 = (check = 'TODO') =>
 const S1 = s1();
 const CHECK_PATH = 'packages/core/test/CHQ-001/S1_names-itself.test.ts';
 
+/**
+ * A live `kind: e2e` assertion, for rule 11's one exemption. `verify:` is
+ * `playwright-chromium` and not a word more: rule 8 DERIVES it from the kind and
+ * compares character for character (`deriveVerify`, ../lib/spec-parse.mjs).
+ */
+const s2e2e = (check = 'TODO') =>
+  [
+    '- **S2** Given a real browser at 1280x800, when the list is loaded, then the overdue task is visible without scrolling.',
+    `  - kind: e2e · home: @cheq/web · verify: playwright-chromium · check: ${check}`,
+  ].join('\n');
+
+const E2E_CHECK_PATH = 'e2e/CHQ-001/S2_overdue-first.spec.ts';
+
+/** The e2e counterpart of GREEN_CASE: never run here, only classified. */
+const E2E_CASE = `import { expect, test } from '@playwright/test';
+
+test('S2_overdue_first', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('listitem').first()).toBeVisible();
+});
+`;
+
+/**
+ * Record the browser lane as OBSERVED in the fixture's own working tree.
+ *
+ * `.ci/` is gitignored, so this needs no commit — `readProbe` reads the work
+ * tree. The record must be PINNED to the fixture's committed lockfile or
+ * `readProbe` calls it stale and `premise` answers cannot-verify, which is the
+ * very state the exemption keys on: a record this probe could not pin would
+ * silently prove nothing.
+ */
+function observeBrowserLane(r) {
+  const lock = lockKey({ root: r.dir });
+  assert(lock.ok, `the fixture's committed lockfile must be readable to pin a probe record: ${String(lock.reason)}`);
+  r.write(
+    PROBE_PATH,
+    `${JSON.stringify(
+      {
+        observedAt: new Date().toISOString(),
+        lockSha256: lock.sha256,
+        probes: { browser_probe: { observed: true, class: 'browser', detail: 'planted by this probe, so rule 11 stops exempting e2e' } },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
 const AC_BOTH = [
   '| Vision § | Assertions | Planned home | Notes |',
   '|---|---|---|---|',
   '| §1 A task carries a due date. | S1 | @cheq/core | |',
   '| §2 The list shows the overdue ones first. | — | out of scope: the view comes later | |',
 ].join('\n');
+
+const AC_WITH_E2E = AC_BOTH.replace('| §2 The list shows the overdue ones first. | — | out of scope: the view comes later | |', '| §2 The list shows the overdue ones first. | S2 | @cheq/web | |');
 
 /**
  * A spec that spec-gate passes, with every part overridable by name. A `null`
@@ -295,6 +346,20 @@ function specFixture(label, specBody, { commit = 'docs(spec): CHQ-001' } = {}) {
   const r = skeleton(label);
   r.write(SPEC_PATH, specBody);
   r.commit(commit);
+  return r;
+}
+
+/**
+ * An APPROVED CHQ-001 whose core S names its committed test and whose e2e S is
+ * still `TODO`: the shape rule 11's exemption is about, with the phase started.
+ */
+function e2eExemptFixture(label) {
+  const r = skeleton(label);
+  r.write(SPEC_PATH, spec({ assertions: `${s1(CHECK_PATH)}\n${s2e2e('TODO')}`, acMap: AC_WITH_E2E }));
+  r.commit('docs(spec): CHQ-001 with a core S and an e2e S');
+  r.commit('docs(spec): CHQ-001 approved\n\nspec-approved: CHQ-001 owner 2026-01-04');
+  r.write(CHECK_PATH, GREEN_CASE);
+  r.commit('test(CHQ-001): the core case lands, so the phase has started');
   return r;
 }
 
@@ -1088,6 +1153,79 @@ export const probes = [
     assertOut(started, /S1: `check: TODO` while a spec test for CHQ-001 already exists at HEAD/, 'the blocker must name the file that proves the phase started');
     assertOut(started, /every live assertion names the file that holds its cases/, 'and what to do about it');
     r.cleanup();
+  }),
+
+  probe('spec-gate: rule 11 exempts a live `kind: e2e` S from `check:` while its lane cannot run, and the exemption expires on its own', () => {
+    // WHAT THIS IS FOR, measured on CHQ-003 on 2026-11-02. That spec has eleven
+    // live S: ten `kind: web`, whose files the test phase committed, and S11
+    // `kind: e2e`, which got NO test because `BROWSER_PROBE=absent` — the
+    // browsers are not installed (TD-0001) and whether an e2e test may be
+    // written is read from that flag, never from the spec. Rule 13 already knew
+    // the lane was unverifiable and warned about it; rule 11 did not, and
+    // demanded a `check:` path from S11 anyway. Since the only legal values are
+    // `TODO` or a path that classifies as a spec test AND exists at HEAD, that
+    // was a blocker nobody could clear without writing a test for a runner this
+    // machine has never observed, or withdrawing an assertion the spec argues
+    // for in its own prose. BEFORE the change this probe's first stage failed:
+    // exit 1, "S2: `check: TODO` while a spec test for CHQ-001 already exists".
+    const r = e2eExemptFixture('sg-check-e2e-exempt');
+
+    // --- the fixture has no .ci/probe.json, so the lane is unobserved
+    const exempt = specGate(r, ['--require-approved', 'CHQ-001']);
+    assertStatus(exempt, 0, 'an e2e assertion may hold `check: TODO` while nothing can run its lane');
+    assertOut(exempt, /S2: `check: TODO` on a live `kind: e2e` assertion whose lane cannot run/, 'the exemption must be reported, never silent');
+    assertOut(exempt, /becomes a blocker the moment `browser_probe` is observed/, 'and must say what ends it');
+    assertOut(exempt, /warning/, 'a warning, so a reader sees the state');
+    assertNotOut(exempt, /S2: `check: TODO` while a spec test for CHQ-001 already exists at HEAD/, 'the ordinary rule-11 blocker must not also fire for the exempt assertion');
+
+    r.cleanup();
+
+    // --- NARROWNESS: the exemption is about the LANE, not about `check: TODO`.
+    // A spec whose core S is ALSO `TODO` must still block on that one while the
+    // e2e S stays exempt in the same run — otherwise one unverifiable lane would
+    // amnesty a whole spec. It is a fresh fixture rather than an edit of the one
+    // above, because editing the spec after the signature makes the approval
+    // stale, and a stale approval skips rule 11 wholesale (`if (fresh)`), so the
+    // edit would have proven nothing. That is the same horizon CHQ-003 hit.
+    const n = skeleton('sg-check-e2e-narrow');
+    n.write(SPEC_PATH, spec({ assertions: `${s1('TODO')}\n${s2e2e('TODO')}`, acMap: AC_WITH_E2E }));
+    n.commit('docs(spec): CHQ-001 with both S still TODO');
+    n.commit('docs(spec): CHQ-001 approved\n\nspec-approved: CHQ-001 owner 2026-01-04');
+    n.write(CHECK_PATH, GREEN_CASE);
+    n.commit('test(CHQ-001): the core case lands, so the phase has started');
+
+    const narrow = specGate(n, ['--require-approved', 'CHQ-001']);
+    assertStatus(narrow, 1, 'a `kind: core` assertion is not exempt, whatever the browser lane is doing');
+    assertOut(narrow, /S1: `check: TODO` while a spec test for CHQ-001 already exists at HEAD/, 'the non-e2e assertion must still be named as a blocker');
+    assertOut(narrow, /S2: `check: TODO` on a live `kind: e2e` assertion whose lane cannot run/, 'and the e2e one must still be exempt in the same run');
+    n.cleanup();
+  }),
+
+  probe('spec-gate: the e2e exemption ends when the lane is observed, and when the phase writes an e2e test of its own', () => {
+    // The exemption above is not a waiver, and these are the two ways it ends.
+    // A waiver that nothing can revoke is how a gate stops checking, so both
+    // exits are probed rather than described.
+
+    // --- exit 1: the browser lane is RECORDED as observed, so e2e is ordinary
+    const observed = e2eExemptFixture('sg-check-e2e-observed');
+    observeBrowserLane(observed);
+    const strict = specGate(observed, ['--require-approved', 'CHQ-001']);
+    assertStatus(strict, 1, 'once a probe records the browser lane, an e2e S names its file like every other');
+    assertOut(strict, /S2: `check: TODO` while a spec test for CHQ-001 already exists at HEAD/, 'the ordinary rule-11 blocker must come back');
+    assertNotOut(strict, /S2: `check: TODO` on a live `kind: e2e` assertion whose lane cannot run/, 'and the exemption must be gone');
+    assertNotOut(strict, /carries a live `kind: e2e` assertion and the browser route is UNVERIFIED/, "rule 13's warning must also go, from the same premise read");
+    observed.cleanup();
+
+    // --- exit 2: the lane is still unobserved, but an e2e test EXISTS, so the
+    // author wrote the test and left `check:` pointing at nothing.
+    const written = e2eExemptFixture('sg-check-e2e-written');
+    written.write(E2E_CHECK_PATH, E2E_CASE);
+    written.commit('test(CHQ-001): an e2e case lands although the lane cannot run');
+    const placed = specGate(written, ['--require-approved', 'CHQ-001']);
+    assertStatus(placed, 1, 'an e2e test that exists must be named by its assertion, lane or no lane');
+    assertOut(placed, /S2: `check: TODO` while a spec test for CHQ-001 already exists at HEAD/, 'the blocker must return once the test is there');
+    assertNotOut(placed, /S2: `check: TODO` on a live `kind: e2e` assertion whose lane cannot run/, 'the exemption may not cover a written test');
+    written.cleanup();
   }),
 
   probe('spec-gate: append-only is measured against the SIGNED text, so a revision BEFORE the signature is not a rewording after it', () => {

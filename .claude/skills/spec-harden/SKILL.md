@@ -85,7 +85,9 @@ with what a task manager "obviously" does — that is a `Qn:`, every time.
      e2e ⇒ `playwright-chromium`. Never write machine state into it — no version, no path, no
      "pending" word. Whether the e2e lane can run at all is read live from `BROWSER_PROBE` in the
      session that needs it (ts-loop, PRE-FLIGHT), never from the spec. `check: TODO` until the test
-     phase fills in the committed test file.
+     phase fills in the committed test file — except for a `kind: e2e` S, whose `check:` STAYS `TODO`
+     while `BROWSER_PROBE` is not `pass`: rule 11 exempts exactly that one case and says so as a
+     warning (TD-0001). The exemption ends the day the probe passes.
    - **Every value in a `kind: core` Given is declared in `inputs:`** — `differs` (changing it alone
      must change the observable) or `invariant` (it must not). A value whose effect the vision does
      not decide is a `Qn`, never a guess. The honest limit of this device, stated here so nobody

@@ -45,6 +45,17 @@ this installed version pins is present, which is what `playwright install --dry-
 - No assertion anywhere depends on it: `tests-from-spec` writes no `kind: e2e` test while
   `browser_probe` is not `pass`, and `spec-gate` prints one WARNING line naming `browser_probe` for a
   spec that carries an e2e assertion.
+- **`spec-gate` rule 11 exempts such an assertion from naming a `check:` file**, and that exemption is
+  this entry's, not a waiver of its own. Added 2026-11-02 after CHQ-003 hit it: that spec has eleven
+  live S, the ten `kind: web` ones with their files committed and S11 `kind: e2e` with no test because
+  `BROWSER_PROBE=absent` — and rule 11 demanded a path from S11 anyway. The only legal values are
+  `TODO` or a path that classifies as a spec test AND exists at HEAD, so the spec was *unfixable*
+  rather than merely blocked: the choices were to write a test for a runner this machine has never
+  observed, or to withdraw an assertion the spec argues for in its own prose. Rule 13 already knew the
+  lane was unverifiable; rule 11 did not. The exemption is narrow — one kind, reported as a WARNING,
+  and only while **both** hold: `browser_probe` is not observed, and the phase has placed no e2e test
+  for that id. Two probes in `tools/gates/probes/gates.mjs` assert it exists, that it does not cover a
+  non-e2e `TODO`, and that it ends on either condition.
 
 ## What closing it involves
 
@@ -57,6 +68,11 @@ this installed version pins is present, which is what `playwright install --dry-
    `.ci/probe.json` and this entry closes.
 3. The probe must check the pinned build, not the cache directory — the measurement above is the
    reason. `status.mjs` prints the expected build and whether it is present.
-4. If the download is unavailable or the run cannot pass, the entry **stays open with a different
+4. Closing it **re-arms rule 11 for `kind: e2e`** with no edit to any gate: the exemption keys on the
+   premise, so the moment `browser_probe` is observed an e2e assertion names its own file like every
+   other, and a spec still carrying `check: TODO` for one becomes a blocker. That is deliberate — it
+   is what keeps the exemption from outliving the debt — so expect it on the first `spec-gate` run
+   after the probe passes, and fill in the `check:` paths in the same commit.
+5. If the download is unavailable or the run cannot pass, the entry **stays open with a different
    reason**: `kind: e2e` is then a kind no runner can falsify on this machine, and an e2e sentence in a
    spec belongs in `## Syrup` or as a question, not as an assertion.
