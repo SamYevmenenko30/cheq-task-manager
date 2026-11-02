@@ -1414,6 +1414,14 @@ function report(ctx) {
     }
     try {
       writeRunJson(ctx.runDir, {
+        // This is a GATE's record, not a lane's run of record, and the field says so. The tools
+        // this gate spawns are in `children`, where they stay ADVISORY — `steps` is run.mjs's
+        // vocabulary for the halves whose argv L-artifacts asserts flags against, and red-check
+        // drives its own base runs rather than a lane. Without this field L-artifacts read every
+        // red-check directory as a run of record missing its `steps` and answered CANNOT VERIFY,
+        // which is how a gate's own bookkeeping ends up failing an unrelated light (measured
+        // 2026-11-02, on the directory the empty-scope path above now writes).
+        gate: 'red-check',
         head: ctx.head?.sha ?? null,
         treeClean: st.ok ? st.entries.length === 0 : null,
         argv: process.argv.slice(1),
