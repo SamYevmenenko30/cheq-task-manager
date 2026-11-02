@@ -1,6 +1,6 @@
 # TD-0013: the 80% coverage floor is declared in the config and read by nothing
 
-**Status:** Open · the number is written down correctly and no lane asserts it
+**Status:** Open · ~~the denominator is all support and no product~~ RESOLVED 2026-11-02 with the product in view, and the floor now PASSES (100 / 96.15 / 100 / 100, exit 0). What stays open is the original complaint: no lane asserts it
 **Area:** `jest.config.mjs` (`coverageThreshold`, `collectCoverageFrom`) · `tools/gates/run.mjs` · `tools/gates/ready.mjs`
 **Raised:** 2026-11-02
 
@@ -68,4 +68,47 @@ In the same change that lands the first product endpoint (CHQ-002 and after):
 - and a decision, written down, on whether `packages/core/src/testing/` belongs in the denominator
   of a floor the assignment set for the backend.
 
-Until then the honest statement is the one at the top: the number is right and nothing checks it.
+## 2026-11-02 — the denominator decision, taken on the condition this entry set
+
+Point 2 above refused excluding `packages/core/src/testing/` and then named the condition under
+which it would be right: "It may well be the right boundary once there is product code to measure,
+but it has to be a declared decision made WITH that code in view, not a way to make a number pass."
+That condition is now met — CHQ-001, CHQ-002 and CHQ-003 are implemented — so the decision was taken
+rather than the rule bent, and it is recorded here and in `jest.config.mjs` with the measurement
+BOTH ways so a reader can check which it was.
+
+**Measured with the product complete, over `core` + `api`:**
+
+| denominator | statements | branches | functions | lines | exit |
+|---|---|---|---|---|---|
+| as it stood | 88.02% | **76.54%** | 82.92% | 87.57% | **1** |
+| as it stands now | 100% | 96.15% | 100% | 100% | 0 |
+
+What moved was the measurement, not the tests: every product file reads 100% except one branch of
+`app.ts`. Two files left the denominator, and they are different cases:
+
+- **`packages/core/src/testing/**`** — the case this entry predicted. It is test plumbing exported
+  at `./testing` for tests to import, and at 72.54% branches it WAS the whole shortfall. Counting a
+  test helper's branches as product coverage measures the wrong thing; this is a correction.
+- **`apps/api/src/server.ts`** — a case this entry did not anticipate, because the file did not
+  exist when it was written. It reads 0% and cannot read anything else: every api test reaches the
+  app through `app.inject()` and binds no port, which is this project's rule rather than an
+  omission. The distinction that makes this an exclusion and not a dodge is EVIDENCE — CHQ-004
+  built the image and the running container answered `/health`, `/tasks` and the 400, which is a
+  stronger statement about a process entry than a unit test would be. An entry point excluded with
+  no evidence anywhere would be the dodge.
+
+**Not excluded, deliberately:** `app.ts`'s one uncovered branch, the non-object request body in
+`titleOf`. A case for it cannot be added now — `red-check` requires a new spec-test case to be RED
+on the base, and that behaviour already works, so it would be green and the gate would refuse it.
+The method makes a test written to fit existing code impossible, which is the right trade and has a
+consequence worth naming: a coverage gap in already-implemented code closes during that ticket's
+test phase or not at all.
+
+## What is still open, and it is the original complaint
+
+No lane asserts the floor. `ready` runs no `--coverage`, nothing writes `coverage-summary.json`
+into a run directory, no reader in `tools/gates/lib` parses one and no light names the per-file
+numbers. The floor bites exactly one caller: a human who types the flag. Everything in "What would
+discharge it" above still stands except its last bullet, which this section answers — and the first
+three are now CHEAPER than when they were written, because the number they would assert passes.
