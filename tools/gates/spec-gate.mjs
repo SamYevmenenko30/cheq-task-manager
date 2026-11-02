@@ -57,13 +57,20 @@
  *   10 an unclassified file under a test directory ⇒ blocked BEFORE any spec is
  *      parsed: if a test file cannot be classified, "did this range enter the
  *      test phase" has no answer, and rule 1 rests on that answer.
- *   11 `check:` is REBOUND TO APPROVAL: `check: TODO` while the spec is
- *      unapproved; once approved, every live S's `check:` exists at HEAD,
+ *   11 `check:` is rebound to approval, but `check: TODO` is rebound to the TEST
+ *      PHASE: while the spec is unapproved it is simply the drafting value; once
+ *      approved and a spec test for that id EXISTS at HEAD it is a FAIL, and in
+ *      between — signed, tests not yet written — it is a WARNING, because that is
+ *      the state the method prescribes between phase 1 and phase 2. A `check:`
+ *      that names anything is checked in full either way: it exists at HEAD,
  *      classifies as a spec test of that S's kind, sits under
  *      `<test dir>/CHQ-nnn/`, and no two S share one file.
- *   12 assertion ids are APPEND-ONLY from approval: a live `Sn` that vanished ⇒
- *      FAIL (withdraw with `~~Sn~~`), a live `Sn` whose text changed ⇒ FAIL
- *      ("reworded after approval"). The trigger is the APPROVAL, not a section.
+ *   12 assertion ids are APPEND-ONLY from approval, measured against the text AT
+ *      THE APPROVAL COMMIT — the only text the human signed. A live `Sn` that
+ *      vanished ⇒ FAIL (withdraw with `~~Sn~~`), a live `Sn` whose text changed
+ *      ⇒ FAIL ("reworded after approval"). The trigger is the APPROVAL, not a
+ *      section — and not the file's own commit history, which is what it used to
+ *      be and which never sees the approval at all, since that is an empty commit.
  *   13 one WARNING when a touched spec carries a live `kind: e2e` S while the
  *      browser premise is not observed. This is the ONE place machine state is
  *      reported by this gate, and it is never compared with a spec.
@@ -113,6 +120,7 @@ import {
   existsAtHead,
   showAtHead,
   isTreeClean,
+  lsFiles,
 } from './lib/git.mjs';
 import { readProbe, premise } from './lib/probe.mjs';
 import { makeRunDir, artifactPath, writeRunJson } from './lib/run-dir.mjs';
@@ -760,16 +768,38 @@ function checkApproved({ id, spec, live, approval, report, ctx }) {
   const fresh = approval.verdict === 'green';
 
   // --- rule 11: `check:` is rebound to approval
+  //
+  // APPROVAL IS NOT THE TRIGGER FOR `check: TODO`; THE TEST PHASE IS. Approval and
+  // the test files do not arrive together: the human signs, and only then may the
+  // test phase run — whose step 0 is this gate with `--require-approved`. Making
+  // the signature itself a blocker for `check: TODO` therefore deadlocked the
+  // method: the only phase that can fill `check:` could not start, because the
+  // field it exists to fill was already failing. Measured on CHQ-001, the first
+  // spec ever approved here (2026-11-02): seven blockers, one per assertion, on a
+  // spec in exactly the state the method prescribes between phase 1 and phase 2.
+  //
+  // So the blocker fires once a spec test for this id EXISTS at HEAD — the phase
+  // has produced something, and from then on every live S must name its own file.
+  // Before that, an approved spec with `check: TODO` is a spec awaiting its tests,
+  // which is reported and does not block. The rest of rule 11 is unchanged: a
+  // `check:` that names anything is checked in full either way.
+  const phaseStarted = fresh ? lsFiles([], { cwd: ctx.root }).files.some((f) => isTestFile(f) && f.includes(`/${id}/`)) : false;
   if (fresh) {
     const byFile = new Map();
     for (const a of live) {
       const value = a.check;
       if (value === null) continue; // the library already reported check-missing
       if (/^todo$/i.test(value)) {
-        report.fail(
-          at(a.line),
-          `${a.id}: \`check: TODO\` survives only while the spec is unapproved — ${id} is approved, so name the file that holds the cases`,
-        );
+        if (phaseStarted)
+          report.fail(
+            at(a.line),
+            `${a.id}: \`check: TODO\` while a spec test for ${id} already exists at HEAD — the test phase has started, so every live assertion names the file that holds its cases`,
+          );
+        else
+          report.warn(
+            at(a.line),
+            `${a.id}: \`check: TODO\` on an approved spec — ${id} is signed and awaiting its tests, which is the state between the spec phase and the test phase. It becomes a blocker as soon as one spec test for ${id} exists at HEAD`,
+          );
         continue;
       }
       const c = classify(value);
@@ -793,18 +823,27 @@ function checkApproved({ id, spec, live, approval, report, ctx }) {
     }
   }
 
-  // --- rule 12: ids are append-only from approval
+  // --- rule 12: ids are append-only FROM APPROVAL
+  //
+  // The baseline is the text AT THE APPROVAL COMMIT, which is the only text the
+  // human actually signed. It used to be `commitsTouching(spec)[1]` — the
+  // second-newest commit that touched the file — and that is a different thing
+  // entirely: the approval is an EMPTY commit and touches no file, so the baseline
+  // never moved to it. Measured on CHQ-001 (2026-11-02): the spec was revised in
+  // an ANSWERS round and signed afterwards, and the gate compared the signed text
+  // against the revision BEFORE it and called a pre-approval edit "reworded after
+  // approval". Re-signing could not cure it either, because another empty commit
+  // still touches no file — so the normal flow (draft, revise, sign) was
+  // permanently stuck on a finding about a change the human had signed off.
   if (!approvedAtAll) return;
-  const history = commitsTouching(ctx.root, spec.path ?? specPath(id));
-  if (!history.ok) {
-    report.cannotVerify(spec.path ?? specPath(id), `cannot read this spec's own history (${history.reason}) — append-only ids cannot be checked`);
-    return;
-  }
-  const previous = history.commits[1] ?? null;
-  if (!previous) return; // first appearance: nothing to be append-only against
+  const previous = approval.approved?.commit ?? null;
+  if (!previous) return; // approved, but the trailer's commit is unknown: nothing to compare against
   const before = readSpecAtRev(ctx.root, id, previous);
   if (!before.ok) {
-    report.cannotVerify(`${spec.path ?? specPath(id)}@${short(previous)}`, `cannot read the previous revision (${before.error}) — append-only ids cannot be checked`);
+    report.cannotVerify(
+      `${spec.path ?? specPath(id)}@${short(previous)}`,
+      `cannot read this spec as it stood at the approval commit (${before.error}) — append-only ids cannot be checked`,
+    );
     return;
   }
   const old = parseSpec(before.text, { path: spec.path ?? specPath(id) });
@@ -814,14 +853,14 @@ function checkApproved({ id, spec, live, approval, report, ctx }) {
     if (!current) {
       report.fail(
         spec.path ?? specPath(id),
-        `${a.id} was live in ${short(previous)} and is gone — ids are append-only once approved; withdraw it with \`- ~~${a.id}~~ withdrawn: <why>\` and never reuse the number`,
+        `${a.id} was live in the approved text (${short(previous)}) and is gone — ids are append-only once approved; withdraw it with \`- ~~${a.id}~~ withdrawn: <why>\` and never reuse the number`,
       );
       continue;
     }
     if (!current.withdrawn && current.text !== a.text)
       report.fail(
         at(current.line),
-        `${a.id} was reworded after approval (${short(previous)} said ${JSON.stringify(clip(a.text, 48))}) — bump \`Revision:\`, re-sign with a new \`spec-approved:\` trailer, or restore the text`,
+        `${a.id} was reworded after approval — the signed text (${short(previous)}) said ${JSON.stringify(clip(a.text, 48))}. Bump \`Revision:\` and re-sign with a new \`spec-approved:\` trailer, or restore the text`,
       );
   }
 }

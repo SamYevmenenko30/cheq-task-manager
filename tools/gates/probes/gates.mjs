@@ -990,6 +990,79 @@ export const probes = [
     r.cleanup();
   }),
 
+  probe('spec-gate: `check: TODO` on an approved spec waits for the TEST PHASE, and blocks the moment one of its tests exists', () => {
+    // THE DEADLOCK THIS PROBE EXISTS FOR, measured on CHQ-001 on 2026-11-02 — the
+    // first spec ever approved in this repository. Approval and the test files do
+    // not arrive together: the human signs, and only THEN may the test phase run,
+    // whose step 0 is `--require-approved`. While the signature itself was the
+    // trigger, that step failed with one blocker per assertion on a spec in
+    // exactly the state the method prescribes between phase 1 and phase 2 — so the
+    // only phase that can fill `check:` could never start.
+    const r = skeleton('sg-check-phase');
+    r.write(SPEC_PATH, spec({ assertions: s1('TODO') }));
+    r.commit('docs(spec): CHQ-001 with its check: still TODO');
+    r.commit('docs(spec): CHQ-001 approved\n\nspec-approved: CHQ-001 owner 2026-01-04');
+
+    const waiting = specGate(r, ['--require-approved', 'CHQ-001']);
+    assertStatus(waiting, 0, 'an approved spec whose tests have not been written yet');
+    assertOut(waiting, /S1: `check: TODO` on an approved spec/, 'the state must be reported, not hidden');
+    assertOut(waiting, /awaiting its tests/, 'the report must say WHY it is not a blocker');
+    assertOut(waiting, /becomes a blocker as soon as one spec test for CHQ-001 exists at HEAD/, 'and when it will become one');
+    assertOut(waiting, /warning/, 'it must be a warning, so a reader sees it');
+
+    // The phase has produced something: from here every live S names its own file.
+    r.write(CHECK_PATH, GREEN_CASE);
+    r.commit('test(CHQ-001): the first case lands');
+    const started = specGate(r, ['--require-approved', 'CHQ-001']);
+    assertStatus(started, 1, 'a spec test for CHQ-001 exists while an assertion still says TODO');
+    assertOut(started, /S1: `check: TODO` while a spec test for CHQ-001 already exists at HEAD/, 'the blocker must name the file that proves the phase started');
+    assertOut(started, /every live assertion names the file that holds its cases/, 'and what to do about it');
+    r.cleanup();
+  }),
+
+  probe('spec-gate: append-only is measured against the SIGNED text, so a revision BEFORE the signature is not a rewording after it', () => {
+    // MEASURED on CHQ-001, 2026-11-02: the baseline used to be the second-newest
+    // commit that TOUCHED the spec. An approval is an `--allow-empty` commit and
+    // touches no file, so the baseline never moved to it — and a spec that was
+    // revised in an ANSWERS round and signed afterwards was reported as "reworded
+    // after approval" for a change the human had signed off. Re-signing could not
+    // cure it either: another empty commit still touches no file.
+    const r = skeleton('sg-append-baseline');
+    r.write(SPEC_PATH, spec({ assertions: s1('TODO') }));
+    r.commit('docs(spec): CHQ-001 first draft');
+
+    const reworded = [
+      '- **S1** Given a task whose due date has passed, when the list is ordered, then that task is first.',
+      '  - kind: core · home: @cheq/core · verify: tsc-noemit + jest-core · check: TODO',
+      '  - inputs: due_date=differs, timezone=invariant',
+    ].join('\n');
+    r.write(SPEC_PATH, spec({ assertions: reworded, revision: '2 — S1 reworded while the spec was still unsigned' }));
+    r.commit('docs(spec): CHQ-001 revision 2 — before any signature');
+    r.commit('docs(spec): CHQ-001 approved\n\nspec-approved: CHQ-001 owner 2026-01-04');
+
+    const signedAfterRevision = specGate(r, ['--require-approved', 'CHQ-001']);
+    assertStatus(signedAfterRevision, 0, 'a spec revised BEFORE its signature — the normal flow of draft, revise, sign');
+    assertOut(signedAfterRevision, /CHQ-001 is approved by owner on 2026-01-04/, 'the approval must be read');
+    assert(
+      !/reworded after approval/.test(`${signedAfterRevision.stdout}${signedAfterRevision.stderr}`),
+      `a pre-approval revision must NOT be reported as a rewording after approval; the gate said: ${signedAfterRevision.stdout.trim().slice(0, 300)}`,
+    );
+
+    // And the rule still bites on the thing it is for.
+    const afterwards = [
+      '- **S1** Given a task with no due date at all, when the list is ordered, then that task is last.',
+      '  - kind: core · home: @cheq/core · verify: tsc-noemit + jest-core · check: TODO',
+      '  - inputs: due_date=differs, timezone=invariant',
+    ].join('\n');
+    r.write(SPEC_PATH, spec({ assertions: afterwards, revision: '3 — S1 reworded AFTER the signature' }));
+    r.commit('docs(spec): CHQ-001 revision 3 — after the signature');
+    const broken = specGate(r, ['--require-approved', 'CHQ-001']);
+    assertStatus(broken, 1, 'an assertion reworded after the signature');
+    assertOut(broken, /S1 was reworded after approval/, 'the finding must name the assertion');
+    assertOut(broken, /the signed text \([0-9a-f]{7,}\) said/, 'and quote what was actually signed, naming that commit');
+    r.cleanup();
+  }),
+
   probe('spec-gate --require-approved: a trailer in the SAME commit as the spec edit does not approve it — rule 14 says AFTER', () => {
     const r = skeleton('sg-selfsign');
     r.write(SPEC_PATH, spec({ assertions: s1(CHECK_PATH) }));
@@ -1031,7 +1104,12 @@ export const probes = [
     const reworded = specGate(r, ['--require-approved', 'CHQ-001']);
     assertStatus(reworded, 1, 'the text of a live S changed after approval');
     assertOut(reworded, /S1 was reworded after approval/, 'the gate must name the assertion and the fact');
-    assertOut(reworded, /bump `Revision:`, re-sign/, 'the cure must be printed');
+    // The cure is pinned here, and its WORDING was corrected on 2026-11-02: the
+    // old message listed three cures separated by commas, which read as three
+    // independent ones — but bumping `Revision:` alone cures nothing, because the
+    // approval is matched against the text, not against the revision number. It
+    // is bump AND re-sign, or restore the text.
+    assertOut(reworded, /Bump `Revision:` and re-sign with a new `spec-approved:` trailer, or restore the text/, 'the cure must be printed, and must not read as three independent cures');
     r.cleanup();
   }),
 
