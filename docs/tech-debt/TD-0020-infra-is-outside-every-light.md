@@ -1,7 +1,7 @@
-# TD-0020: `infra/` is outside every light's walk, so no gate judges the infrastructure at all
+# TD-0020: `infra/` and `.github/` are outside every light's walk, so no gate judges the infrastructure or the pipeline
 
 **Status:** Open · prevention is in place (`.gitignore`), detection is not: no light walks `infra/`, and `L-visible`'s "nothing is hidden" claim does not extend to it
-**Area:** `tools/gates/lights/{visible,lint,orphans,stubkit}.mjs` (their walk roots) · `infra/`
+**Area:** `tools/gates/lights/{visible,lint,orphans,stubkit}.mjs` (their walk roots) · `infra/` · `.github/workflows/`
 **Raised:** 2026-11-02
 
 ## What is unproven
@@ -15,6 +15,13 @@ Every light in this repository walks the same three roots, and `infra/` is not o
 
 (`L-artifacts` walks `tools/gates` and judges a different thing.) So 843 lines of Terraform are
 invisible to the gate pipeline: `ready` prints READY with the infrastructure in any state at all.
+
+**CHQ-006 widened this to the pipeline itself.** `.github/workflows/deploy.yml` is the file that
+decides what runs before a deploy, and no light reads it either — so `ready` is equally green whether
+the workflow calls `ready` or calls nothing. The irony is exact: the gate that would catch a pipeline
+which stopped running the gates is the one nobody wrote. What checked the file instead, once, was a
+YAML parse by hand (`js-yaml`, already installed as a transitive dependency) plus GitHub's own
+refusal of a malformed workflow on push — neither of which is repeatable by a gate.
 
 The sharpest consequence is `L-visible` itself. That light exists so that **no tracked file is
 hidden from a gate**, and it makes a numeric claim — tracked files equal walked files — over its

@@ -1,0 +1,224 @@
+# CHQ-006 — install, test, build, deploy, on every push to main.
+#
+# TWO JOBS, AND THE SPLIT IS THE POINT. `test` runs on every push and every pull request; `deploy`
+# runs only after it passes AND only once `AWS_DEPLOY_ROLE_ARN` is set as a repository variable.
+# That gate is not timidity: until `infra/bootstrap` has been applied there is no role to assume,
+# no registry to push to and no state bucket to write, so the deploy job would fail for a reason
+# that has nothing to do with the commit. A red cross on every push would then mean "AWS is not set
+# up yet", which is exactly the kind of signal that teaches people to ignore red crosses.
+#
+# The variables come from `infra/bootstrap`'s outputs and are set ONCE, by hand, because that stage
+# is deliberately out of CI's reach — it owns the identity CI authenticates with, and a role that
+# can rewrite the role it assumes is not a boundary. Three of the five are derivable from the
+# account id and `var.name`, and `infra/` takes them as required variables today; collapsing them
+# is a change to CHQ-005's files and is not this ticket's to make.
+#
+# NO LONG-LIVED CREDENTIALS. GitHub signs a short-lived OIDC token per run and AWS exchanges it for
+# temporary credentials; the trust policy in `infra/bootstrap/ci.tf` pins BOTH the repository and
+# `refs/heads/main`, so a fork's pull request cannot assume it even though it runs in this
+# repository's context. The only thing stored here is a role ARN, which is not a secret.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# One deploy at a time. Two pushes in quick succession would otherwise race for the Terraform state
+# lock and the ECS service, and the loser's error would be about locking rather than about the code.
+# Pull requests are grouped per ref so a force-push supersedes its own in-flight run; `main` is not
+# cancelled in progress, because cancelling a half-applied deploy is worse than queueing behind it.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # NOT the default depth of 1. `ready.mjs` runs `red-check`, which resolves a commit range
+          # and creates a git worktree from it; in a shallow clone the range does not resolve and
+          # the gate reports CANNOT VERIFY — which blocks, correctly, and for a reason that is about
+          # the checkout rather than the code. Measured locally: red-check's range is derived from
+          # the parent of the commit that first added the newest spec, which can be far back.
+          fetch-depth: 0
+
+      # corepack before setup-node, so the pnpm it pins is on PATH when the cache step looks for it.
+      # The version is `packageManager` in package.json (pnpm@9.15.0) and is never typed here —
+      # `status.mjs` compares the installed pnpm with that field and a second copy would drift.
+      - name: Enable corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # --frozen-lockfile is the point: it refuses a lockfile that disagrees with the manifests
+      # rather than resolving something newer, so CI installs the versions the repository committed.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # THE STOP CONDITION, and it is this repository's own rather than a list of commands copied
+      # into YAML. `ready.mjs` is the check of record: it runs the lights pack, spec-gate,
+      # test-guard, red-check, the three test projects with their type verdicts, and the lint lane,
+      # reads each child's MACHINE record rather than its exit code, and prints READY only when
+      # every blocking step passed. Naming `jest` and `tsc` here instead would be a second,
+      # narrower description of a gate that already exists — and one that silently stops covering
+      # whatever the real gate gains next.
+      #
+      # It will print NOT READY on a commit whose spec tests are still red, which is the designed
+      # state BETWEEN the test phase and the implementation phase. On `main` that is the right
+      # verdict to fail on: main holds implemented work.
+      - name: ready
+        run: node tools/gates/ready.mjs
+
+      # Kept whatever the verdict, because the artefacts ARE the verdict here — the JUnit XML, the
+      # runner's JSON, the tsc logs and each run.json with its head, argv and captured exit code.
+      # A failed run is exactly when somebody wants to read them.
+      - name: Upload the run artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-artifacts-${{ github.sha }}
+          path: |
+            .ci/runs/
+            .ci/ready/
+            .ci/lights/
+          retention-days: 14
+          if-no-files-found: warn
+
+  deploy:
+    name: deploy
+    needs: test
+    # Only on main, and only once the bootstrap stage has been applied and its outputs recorded.
+    # `vars.*` is empty when unset, so this reads as false until a human sets it.
+    if: github.event_name == 'push' && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # the OIDC token; without it there is nothing to exchange for credentials
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: cheq-deploy-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      # The registry is IMMUTABLE by design (`infra/bootstrap/ecr.tf`): a tag is a fact about one
+      # commit and can never be re-pointed at different bytes. The consequence is that pushing the
+      # same sha twice ERRORS, so a re-run of this workflow on an unchanged commit would fail at the
+      # push rather than at anything real. This step asks first and skips the build when the image
+      # is already there, which makes a re-run idempotent without making the tag mutable.
+      - name: Does this commit already have an image?
+        id: existing
+        run: |
+          if aws ecr describe-images \
+               --repository-name "${{ vars.ECR_REPOSITORY_NAME || 'cheq-api' }}" \
+               --image-ids imageTag="$IMAGE_TAG" >/dev/null 2>&1; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push the image
+        if: steps.existing.outputs.present == 'false'
+        run: |
+          docker build -t "${{ vars.ECR_REPOSITORY_URL }}:$IMAGE_TAG" .
+          docker push "${{ vars.ECR_REPOSITORY_URL }}:$IMAGE_TAG"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # The floor the configuration declares (`infra/main.tf`), because the S3 backend's
+          # `use_lockfile` replaced the DynamoDB lock table in 1.10.
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+
+      # The backend is PARTIAL by design: a bucket name is globally unique, cannot be derived from
+      # the project name, and a backend block cannot read a variable. So it arrives at init.
+      - name: terraform init
+        run: >
+          terraform -chdir=infra init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ env.AWS_REGION }}"
+
+      # `image_tag` is the only per-deploy input, so the diff of a deploy is one line. The three
+      # role and registry values are bootstrap's outputs; `wait_for_steady_state` inside the
+      # resource means this returns only once the service is actually serving.
+      - name: terraform apply
+        run: >
+          terraform -chdir=infra apply -auto-approve -input=false
+          -var="image_tag=$IMAGE_TAG"
+          -var="image_repository=${{ vars.ECR_REPOSITORY_URL }}"
+          -var="task_execution_role_arn=${{ vars.TASK_EXECUTION_ROLE_ARN }}"
+          -var="infrastructure_role_arn=${{ vars.INFRASTRUCTURE_ROLE_ARN }}"
+          -var="region=${{ env.AWS_REGION }}"
+
+      - name: Read the stack's outputs
+        id: tf
+        run: |
+          {
+            echo "site_url=$(terraform -chdir=infra output -raw site_url)"
+            echo "web_bucket=$(terraform -chdir=infra output -raw web_bucket)"
+            echo "distribution_id=$(terraform -chdir=infra output -raw cloudfront_distribution_id)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build the SPA
+        run: pnpm --filter @cheq/web build
+
+      # Hashed assets first with a long cache, then index.html with none. The ORDER matters: an
+      # index.html that arrives before the assets it names would point visitors at files that are
+      # not there yet, for as long as the sync takes.
+      - name: Sync the SPA
+        run: |
+          aws s3 sync apps/web/dist "s3://${{ steps.tf.outputs.web_bucket }}" \
+            --delete --exclude index.html --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp apps/web/dist/index.html "s3://${{ steps.tf.outputs.web_bucket }}/index.html" \
+            --cache-control "no-cache"
+
+      - name: Invalidate the edge
+        run: >
+          aws cloudfront create-invalidation
+          --distribution-id "${{ steps.tf.outputs.distribution_id }}"
+          --paths "/" "/index.html"
+
+      # THE VERDICT, read from the deployment itself rather than from the exit code of an apply.
+      # `-f` makes curl fail on a 4xx/5xx, the grep asserts the body is the API's and not an HTML
+      # page an edge misconfiguration returned with status 200, and the retries cover the minute
+      # CloudFront takes to propagate. If this fails, the deploy failed, whatever the steps above
+      # reported.
+      - name: Smoke-test the live URL
+        run: |
+          URL="${{ steps.tf.outputs.site_url }}"
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$URL/health" | tee /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+          curl -fsS --retry 5 --retry-delay 6 --retry-all-errors "$URL/tasks" | tee /tmp/tasks.json
+          test -s /tmp/tasks.json
+          echo "### Deployed: $URL" >> "$GITHUB_STEP_SUMMARY"
