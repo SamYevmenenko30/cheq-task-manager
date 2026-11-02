@@ -5,8 +5,8 @@
 **GENERATED — do not edit (node tools/gates/digest.mjs --fix)**
 
 - format: `1` — bumped whenever the rendering changes, which makes every projection stale until one `--fix`
-- sources sha256: `97d4a51aee25387c3ca1d668257e7c451860db06d0d5c7ab174c4cfc15d0b098`
-- derived from: `packages/core/src/` plus `packages/core/package.json` (the `exports` map, which decides what is a surface at all) — 4 input files, each one listed at the end
+- sources sha256: `7d53a6794d8e3e1a103c1a6fa2eceedbf8f9fd1c775d138b82503c53e9c51928`
+- derived from: `packages/core/src/` plus `packages/core/package.json` (the `exports` map, which decides what is a surface at all) — 5 input files, each one listed at the end
 
 Every export of @cheq/core with its signature and file:line, plus the sha256 of the sources it was derived from — the surface a spec may cite and an api/web role may call, readable without opening the package.
 
@@ -33,6 +33,12 @@ An `export` keyword inside the package is not a promise to an importer: only the
 
 | symbol | kind | signature | declared at | reach |
 |---|---|---|---|---|
+| `CreateTask` | type | `type CreateTask = (store: TaskStore, input: CreateTaskInput) => Promise<CreateTaskOutcome>` | `packages/core/src/contracts/CHQ-001/task.ts:54` | reached from NO entry point — nothing inside or outside this package imports it |
+| `CreateTaskInput` | interface | `interface CreateTaskInput` | `packages/core/src/contracts/CHQ-001/task.ts:38` | reached from NO entry point — nothing inside or outside this package imports it |
+| `CreateTaskOutcome` | type | `type CreateTaskOutcome = \| { readonly status: 'accepted'; readonly task: Task }` | `packages/core/src/contracts/CHQ-001/task.ts:49` | reached from NO entry point — nothing inside or outside this package imports it |
+| `ListTasks` | type | `type ListTasks = (store: TaskStore) => Promise<readonly Task[]>` | `packages/core/src/contracts/CHQ-001/task.ts:57` | reached from NO entry point — nothing inside or outside this package imports it |
+| `Task` | interface | `interface Task` | `packages/core/src/contracts/CHQ-001/task.ts:15` | reached from NO entry point — nothing inside or outside this package imports it |
+| `TaskStore` | interface | `interface TaskStore` | `packages/core/src/contracts/CHQ-001/task.ts:26` | reached from NO entry point — nothing inside or outside this package imports it |
 | `sha256Hex` | function | `function sha256Hex(text: string): string` | `packages/core/src/testing/sha256.ts:149` | reached from an entry point by a relative import |
 | `sha256HexOfBytes` | function | `function sha256HexOfBytes(bytes: readonly number[]): string` | `packages/core/src/testing/sha256.ts:63` | reached from an entry point by a relative import |
 | `utf8Bytes` | function | `function utf8Bytes(text: string): number[]` | `packages/core/src/testing/sha256.ts:33` | reached from an entry point by a relative import |
@@ -44,6 +50,7 @@ The third column is what the scan found in the file, so a file that contributes 
 | file | sha256 | found |
 |---|---|---|
 | `packages/core/package.json` | `d4064709a86e368e4ab32cbe5ce2e82e56e80694a9366379c94eed555b03cbb5` | not scanned (not .ts/.tsx) |
+| `packages/core/src/contracts/CHQ-001/task.ts` | `2272311c1bb9dc7dc6ba129c528d1f09801579757be5a9064d5739522ec9e6e0` | 6 exports, 0 re-exports |
 | `packages/core/src/index.ts` | `25fbc43f34d5efeaded21a5561b1b02a9f8b5aa895d94b81c48c1b14ebaf319c` | 1 export, 0 re-exports |
 | `packages/core/src/testing/digest.ts` | `12244e389d67fd1a7a0973d5681906ddab996c81c0c3deaf4d578cb31beb3243` | 2 exports, 0 re-exports |
 | `packages/core/src/testing/sha256.ts` | `23477cbe275b767590543261438270b800c6c8068e25f1f541f58473601c0512` | 3 exports, 0 re-exports |
