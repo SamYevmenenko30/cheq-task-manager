@@ -32,3 +32,25 @@ vite.config.ts.timestamp-*
 # overwrites" defect jest.config.mjs's header names. Ignored so it can never be committed by
 # accident; it is a byproduct, never an artefact any gate reads.
 junit.xml
+
+# terraform. State is the only record of what exists in the account and it is NOT a source of
+# truth worth committing: it is recreated by `terraform import` if lost, and committing it makes
+# every apply a merge conflict. Plans are byte-for-byte snapshots of state and go with it.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+*.tfplan
+crash.log
+crash.*.log
+
+# `.terraform.lock.hcl` is COMMITTED on purpose, and is the exception to the block above: it is the
+# only record of which provider version an apply actually used — the role pnpm-lock.yaml plays for
+# packages, where package.json declares a range and the lock decides (ADR-0003). Ignoring it would
+# mean two applies of the same commit could use different providers.
+
+# tfvars can hold whatever a hand typed. Nothing here needs them — every variable is either
+# defaulted or passed with -var by the workflow — so one appearing is a local convenience.
+*.tfvars
+*.auto.tfvars
+!*.tfvars.example
