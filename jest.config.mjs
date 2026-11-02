@@ -27,6 +27,28 @@
 // 5. `core` and `core-dom` run the SAME files in different environments. That is
 //    the parity lane L-env-parity diffs case by case; it is not a double
 //    collection, and L-orphans knows the pair.
+// 6. `transformIgnorePatterns` is widened by exactly ONE package, and the one is
+//    forced. `app.inject()` — the whole verdict mechanism of `kind: api`
+//    (ADR-0002, docs/vendor/fastify.md) — loads light-my-request@6.8.0, which is
+//    CommonJS and does `require('cookie')` at module scope
+//    (light-my-request/lib/cookies.js:3 <- lib/request.js:10 <- index.js:5),
+//    while cookie@2.0.1 is ESM-only: `"type": "module"`,
+//    `"exports": "./dist/index.js"` and no CJS build in the package at all.
+//    Node 22 would do that require natively; Jest's own CJS loader intercepts it
+//    and refuses, and the three cures it names are a transform, this key, or
+//    Node v24.9+ (jest-runtime 30.5.2 build/index.js:452). MEASURED 2026-11-02
+//    on CHQ-002: with the default `['/node_modules/']`, every inject-based
+//    assertion dies with ERR_REQUIRE_ESM before reaching an expectation — 25 of
+//    29 api cases, a failure about the loader and not about the product — and
+//    with the pattern below, 29 of 29 pass. The exception names one package, in
+//    BOTH spellings a pnpm store path has (`node_modules/.pnpm/cookie@x/` and
+//    the `node_modules/cookie/` inside it, because `node-linker=isolated` —
+//    .npmrc:4 — produces both), so nothing else in node_modules starts being
+//    transformed by accident. The key is NOT one of L-visible's three doors into
+//    this file (testMatch, testPathIgnorePatterns, modulePathIgnorePatterns —
+//    tools/gates/lights/visible.mjs:212) and it hides nothing: it makes one
+//    third-party module loadable. TD-0016 records the alternative — moving the
+//    pinned Node to 24.9+ — and why that choice is not this ticket's to make.
 
 const transform = {
   '^.+\\.(t|j)sx?$': [
@@ -50,6 +72,9 @@ const transform = {
 
 const shared = {
   transform,
+  // Header fact 6: the default is `['/node_modules/']`, and cookie@2.0.1 is the
+  // one package lifted out of it. TD-0016.
+  transformIgnorePatterns: ['/node_modules/(?!(\\.pnpm/)?cookie[@/])'],
   extensionsToTreatAsEsm: ['.ts', '.tsx'],
   moduleNameMapper: { '^(\\.{1,2}/.*)\\.tsx?$': '$1' },
   clearMocks: true,
